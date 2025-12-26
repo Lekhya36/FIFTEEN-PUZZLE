@@ -21,7 +21,7 @@ BTN_GREY = "#BDC3C7"
 #TO FIND THE EMPTY SPACE
 def find_empty(board):
     return board.index(0)
-
+#VALID MOVES
 def get_valid_moves(board):
     e = find_empty(board)
     r, c = divmod(e, SIZE)
@@ -44,7 +44,8 @@ def shuffle_board(board, steps=40):
         t = random.choice(moves)
         cur = swap(cur, find_empty(cur), t)
     return cur
-
+    
+#GREEDY LOGIC 
 def manhattan(board):
     d = 0
     for i, v in enumerate(board):
@@ -54,7 +55,7 @@ def manhattan(board):
         r2, c2 = divmod(gi, SIZE)
         d += abs(r1 - r2) + abs(c1 - c2)
     return d
-
+#SORTING 
 def insertion_sort_moves(moves):
     for i in range(1, len(moves)):
         key = moves[i]
@@ -65,7 +66,7 @@ def insertion_sort_moves(moves):
         moves[j + 1] = key
     return moves
 
-# A* ALGORITHM 
+#A*ALGORITHM 
 def get_a_star_move(start_board):
     queue = []
     initial_h = manhattan(start_board)
@@ -281,7 +282,7 @@ class FifteenGame:
         
         self.h_score_lbl.config(text=str(self.h_score))
         self.c_score_lbl.config(text=str(self.c_score))
-
+    #FINAL GAME LOGIC
     def end_game(self):
         self.game_over = True
         self.btn_pause.config(state="disabled", bg=BTN_GREY)
@@ -320,4 +321,5 @@ class FifteenGame:
 if __name__ == "_main_":
     root = tk.Tk()
     FifteenGame(root)
+
     root.mainloop()
