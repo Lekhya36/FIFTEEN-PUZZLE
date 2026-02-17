@@ -6,16 +6,10 @@ import sys
 
 sys.setrecursionlimit(10000)
 
-# ======================
-# GAME CONSTANTS
-# ======================
 SIZE = 4
 GOAL = list(range(1, SIZE * SIZE)) + [0]
 INF = float("inf")
 
-# ======================
-# GUI COLORS
-# ======================
 BG_COLOR = "#E8F6F3"
 TILE_COLOR = "#FFF9C4"
 EMPTY_SLOT = "#A9DFBF"
@@ -24,9 +18,6 @@ BTN_START = "#58D68D"
 BTN_RESET = "#EC7063"
 BTN_GREY = "#BDC3C7"
 
-# ======================
-# BOARD UTILITIES
-# ======================
 def find_empty(board):
     return board.index(0)
 
@@ -63,9 +54,6 @@ def manhattan(board):
         d += abs(r1 - r2) + abs(c1 - c2)
     return d
 
-# ======================
-# IDA* (DIVIDE & CONQUER + DP)
-# ======================
 def get_divide_conquer_dp_move(board):
     bound = manhattan(board)
     path = [board]
@@ -119,13 +107,10 @@ def fallback_move(board):
         key=lambda m: manhattan(swap(board, empty, m))
     )
 
-# ======================
-# GAME GUI
-# ======================
 class FifteenGame:
     def __init__(self, root):
         self.root = root
-        self.root.title("15 Puzzle – IDA* Solver")
+        self.root.title("15 Puzzle ")
         self.root.geometry("500x620")
         self.root.configure(bg=BG_COLOR)
 
@@ -239,10 +224,8 @@ class FifteenGame:
             else:
                 self.buttons[i].config(text=str(v), state="normal", bg=TILE_COLOR)
 
-# ======================
-# MAIN
-# ======================
 if __name__ == "__main__":
     root = tk.Tk()
     FifteenGame(root)
     root.mainloop()
+
