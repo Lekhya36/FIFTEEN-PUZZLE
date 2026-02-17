@@ -4,7 +4,7 @@ from tkinter import font as tkfont
 import heapq
 import time
 
-#GAME CONSTANTS 
+#GAME constrains
 SIZE = 4
 GOAL = list(range(1, SIZE * SIZE)) + [0]
 
@@ -323,3 +323,4 @@ if __name__ == "_main_":
     FifteenGame(root)
 
     root.mainloop()
+
