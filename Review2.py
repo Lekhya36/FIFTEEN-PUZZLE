@@ -5,19 +5,26 @@ import time
 import sys
 
 sys.setrecursionlimit(10000)
-
+# ======================
+# GAME CONSTANTS
+# ======================
 SIZE = 4
 GOAL = list(range(1, SIZE * SIZE)) + [0]
 INF = float("inf")
 
+# ======================
+# GUI COLORS
+# ======================
 BG_COLOR = "#E8F6F3"
 TILE_COLOR = "#FFF9C4"
 EMPTY_SLOT = "#A9DFBF"
 TEXT_COLOR = "#2D3436"
 BTN_START = "#58D68D"
 BTN_RESET = "#EC7063"
-BTN_GREY = "#BDC3C7"
 
+# ======================
+# BOARD UTILITIES
+# ======================
 def find_empty(board):
     return board.index(0)
 
@@ -36,13 +43,16 @@ def swap(board, i, j):
     b[i], b[j] = b[j], b[i]
     return b
 
-def shuffle_board(board, steps=20):  # reduced for speed
+def shuffle_board(board, steps=20):
     cur = board.copy()
     for _ in range(steps):
         m = random.choice(get_valid_moves(cur))
         cur = swap(cur, find_empty(cur), m)
     return cur
 
+# ======================
+# HEURISTIC (Manhattan Distance)
+# ======================
 def manhattan(board):
     d = 0
     for i, v in enumerate(board):
@@ -54,7 +64,10 @@ def manhattan(board):
         d += abs(r1 - r2) + abs(c1 - c2)
     return d
 
-def get_divide_conquer_dp_move(board):
+# ======================
+# IDA* WITH DP (MEMOIZATION)
+# ======================
+def ida_star(board):
     bound = manhattan(board)
     path = [board]
     memo = {}
@@ -63,8 +76,6 @@ def get_divide_conquer_dp_move(board):
         t = ida_search(path, 0, bound, memo)
         if isinstance(t, int):
             return t
-        if t == INF:
-            return fallback_move(board)
         bound = t
 
 def ida_search(path, g, bound, memo):
@@ -100,17 +111,47 @@ def ida_search(path, g, bound, memo):
 
     return min_cost
 
-def fallback_move(board):
-    empty = find_empty(board)
-    return min(
-        get_valid_moves(board),
-        key=lambda m: manhattan(swap(board, empty, m))
-    )
+# ======================
+# DIVIDE & CONQUER + DP
+# ======================
+dp_cache = {}
 
+def solve_phase(board, target_tiles):
+    state = tuple(board)
+    if state in dp_cache:
+        return dp_cache[state]
+
+    if all(board.index(t) == GOAL.index(t) for t in target_tiles):
+        return []
+
+    move = ida_star(board)
+    empty = find_empty(board)
+    new_board = swap(board, empty, move)
+
+    result = [move] + solve_phase(new_board, target_tiles)
+    dp_cache[state] = result
+    return result
+
+def divide_and_conquer_solver(board):
+    # Divide
+    phase1 = list(range(1, 9))    # tiles 1–8
+    phase2 = list(range(9, 16))   # tiles 9–15
+
+    # Conquer
+    moves1 = solve_phase(board, phase1)
+    for m in moves1:
+        board = swap(board, find_empty(board), m)
+
+    moves2 = solve_phase(board, phase2)
+    return moves1 + moves2
+
+# ======================
+# GAME GUI
+# ======================
 class FifteenGame:
     def __init__(self, root):
         self.root = root
-        self.root.title("15 Puzzle ")
+        self.root.title("15 Puzzle – Divide & Conquer + DP")
         self.root.geometry("500x620")
         self.root.configure(bg=BG_COLOR)
 
@@ -126,12 +167,12 @@ class FifteenGame:
         self.update_clock()
 
     def setup_fonts(self):
-        self.title_f = tkfont.Font(size=26, weight="bold")
+        self.title_f = tkfont.Font(size=24, weight="bold")
         self.tile_f = tkfont.Font(size=20, weight="bold")
         self.btn_f = tkfont.Font(size=10, weight="bold")
 
     def build_ui(self):
-        tk.Label(self.root, text="15 PUZZLE (IDA*)",
+        tk.Label(self.root, text="15 PUZZLE",
                  font=self.title_f, bg=BG_COLOR).pack(pady=10)
 
         self.time_lbl = tk.Label(self.root, text="00:00",
@@ -181,13 +222,7 @@ class FifteenGame:
         self.update_ui()
 
     def restart_game(self):
-        self.board = shuffle_board(GOAL)
-        self.turn = "HUMAN"
-        self.game_over = False
-        self.is_started = True
-        self.start_time = time.time()
-        self.status.config(text="Your Turn")
-        self.update_ui()
+        self.start_game()
 
     def human_move(self, idx):
         if not self.is_started or self.turn != "HUMAN":
@@ -198,14 +233,13 @@ class FifteenGame:
         self.make_move(idx)
         if self.board != GOAL:
             self.turn = "CPU"
-            self.status.config(text="AI Thinking...")
-            self.root.after(400, self.cpu_move)
+            self.status.config(text="AI Solving...")
+            self.root.after(300, self.cpu_move)
 
     def cpu_move(self):
-        move = get_divide_conquer_dp_move(self.board)
-        if move is None:
-            return
-        self.make_move(move)
+        moves = divide_and_conquer_solver(self.board)
+        if moves:
+            self.make_move(moves[0])
         self.turn = "HUMAN"
         self.status.config(text="Your Turn")
 
@@ -224,8 +258,10 @@ class FifteenGame:
             else:
                 self.buttons[i].config(text=str(v), state="normal", bg=TILE_COLOR)
 
+# ======================
+# MAIN
+# ======================
 if __name__ == "__main__":
     root = tk.Tk()
     FifteenGame(root)
     root.mainloop()
-
