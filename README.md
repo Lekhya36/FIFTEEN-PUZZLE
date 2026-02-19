@@ -1,43 +1,34 @@
 # FIFTEEN-PUZZLE
 A modern, gamified Fifteen Puzzle game built with Python and Tkinter, featuring a Human vs CPU mode powered by the A* search algorithm and Manhattan distance heuristic. Includes an interactive GUI, score tracking, timer
-
 1️⃣Board Setup
 The board size is 4×4
 Tiles contain numbers 1 to 15
 0 represents the empty space
-
 2️⃣ Shuffling the Board
 The board is shuffled using valid moves only
 This ensures the puzzle is always solvable
-
 3️⃣ Valid Moves Logic
 A tile can move up, down, left, or right
 Only tiles next to the empty space are allowed
-
 4️⃣ Manhattan Distance (Heuristic)
 Calculates how far tiles are from their correct position
 Used by CPU to decide the best move
-
 5️⃣ CPU Logic – A* Algorithm
 Uses:
 g(n) → number of moves
 h(n) → Manhattan distance
 f(n) = g(n) + h(n)
-
 6️⃣ Human vs CPU Turns
 Human clicks tiles to move
 CPU automatically makes a move after human
 Turns alternate until puzzle is solved
-
 7️⃣ Scoring System
 Score increases if a move reduces Manhattan distance
 Separate scores for Human and CPU
-
 8️⃣ Timer
 Starts when the game start
 Pauses when the game is paused
 Displayed in MM:SS format
-
 9️⃣ Game End
 Game ends when board reaches the goal state
 Winner decided based on score
@@ -50,3 +41,14 @@ Heuristic Function
 Manhattan Distance
 Priority Queue (heapq)
 Game State Management
+
+
+REVIEW 2 
+**Sliding Puzzle Game**
+Divide & Conquer + A* + Dynamic Programming
+An interactive Sliding Puzzle game (4×4 and 5×5) built using Python (Tkinter GUI) that demonstrates advanced algorithmic strategies:
+A* Search Algorithm
+Manhattan Heuristic
+Dynamic Programming (Memoization)
+Divide & Conquer Strategy
+The game allows Human vs CPU gameplay, hint system, and full automatic solving.
