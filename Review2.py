@@ -55,7 +55,7 @@ def count_correct(board, goal):
 
 
 # A* WITH DP MEMOIZATION
-
+# A* IS USED TO FIND SHORTEST PATH EFFICIENTLY 
 def astar_solve(start, goal_t, size, locked=None, max_nodes=400000):
     """
     A* search with DP memoization (visited dict = DP table).
@@ -87,7 +87,7 @@ def astar_solve(start, goal_t, size, locked=None, max_nodes=400000):
     if start_t == goal_t:
         return [start_t]
 
-    # DP table: best g cost per state
+    # DP table: { TUPLE OF BOARD STATE : NUMBER OF MOVES TO THAT STATE }
     visited = {start_t: 0}
     heap = [(h(start_t), 0, start_t, [start_t])]
 
@@ -99,9 +99,10 @@ def astar_solve(start, goal_t, size, locked=None, max_nodes=400000):
             return None
         if board == goal_t:
             return path
+        # IF THE BOARD IS ALREADY VISITED WITH LESS NUMBER OF MOVES PREVIOUSLY THEN SKIP THAT MOVE 
         if visited.get(board, g) < g:
             continue
-
+        
         e = board.index(0)
         for m in get_valid_moves(list(board), size):
             nb = swap_board(board, e, m)
@@ -498,4 +499,5 @@ if __name__ == "__main__":
     root = tk.Tk()
     PuzzleGame(root)
     root.mainloop()
+
 
