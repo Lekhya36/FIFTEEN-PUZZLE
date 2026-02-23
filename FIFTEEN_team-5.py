@@ -1,12 +1,8 @@
 import tkinter as tk
 from tkinter import messagebox
 import random
-import heapq
 
-# ─────────────────────────────────────────────
-# DARK NEON THEME COLORS
-# ─────────────────────────────────────────────
-BG_COLOR       = "#0f172a"     # dark navy
+BG_COLOR       = "#0f172a"
 FRAME_COLOR    = "#111827"
 TILE_COLOR     = "#1f2937"
 CORRECT_COLOR  = "#064e3b"
@@ -19,7 +15,7 @@ BTN_BLUE       = "#2563eb"
 BTN_GREEN      = "#10b981"
 
 # ─────────────────────────────────────────────
-# BOARD UTILITIES (UNCHANGED)
+# BOARD UTILITIES
 # ─────────────────────────────────────────────
 
 def create_goal(size):
@@ -53,7 +49,7 @@ def count_correct(board, goal):
                if board[i] == goal[i] and board[i] != 0)
 
 # ─────────────────────────────────────────────
-# HEURISTIC (UNCHANGED)
+# HEURISTIC (Manhattan Distance)
 # ─────────────────────────────────────────────
 
 def manhattan(board, goal, size):
@@ -68,38 +64,56 @@ def manhattan(board, goal, size):
     return dist
 
 # ─────────────────────────────────────────────
-# A* + DP (UNCHANGED)
-# ─────────────────────────────────────────────
+# IDA* SOLVER 
 
-def astar_solve(start, goal, size):
+def ida_star(start, goal, size):
 
     start = tuple(start)
-    goal  = tuple(goal)
+    goal = tuple(goal)
 
-    if start == goal:
-        return [start]
+    threshold = manhattan(start, goal, size)
+    path = [start]
 
-    visited = {start: 0}
-    heap = [(manhattan(start, goal, size), 0, start, [start])]
+    def search(g, threshold):
+        node = path[-1]
+        f = g + manhattan(node, goal, size)
 
-    while heap:
-        f, g, current, path = heapq.heappop(heap)
+        if f > threshold:
+            return f
 
-        if current == goal:
+        if node == goal:
+            return "FOUND"
+
+        minimum = float("inf")
+
+        for neighbor in get_neighbors(node, size):
+
+            if neighbor not in path:
+
+                path.append(neighbor)
+
+                temp = search(g + 1, threshold)
+
+                if temp == "FOUND":
+                    return "FOUND"
+
+                if temp < minimum:
+                    minimum = temp
+
+                path.pop()
+
+        return minimum
+
+    while True:
+        temp = search(0, threshold)
+
+        if temp == "FOUND":
             return path
 
-        if visited.get(current, float('inf')) < g:
-            continue
+        if temp == float("inf"):
+            return None
 
-        for neighbor in get_neighbors(current, size):
-            new_g = g + 1
-
-            if neighbor not in visited or new_g < visited[neighbor]:
-                visited[neighbor] = new_g
-                new_f = new_g + manhattan(neighbor, goal, size)
-                heapq.heappush(heap, (new_f, new_g, neighbor, path + [neighbor]))
-
-    return None
+        threshold = temp
 
 # ─────────────────────────────────────────────
 # GAME CLASS
@@ -108,7 +122,7 @@ def astar_solve(start, goal, size):
 class PuzzleGame:
     def __init__(self, root):
         self.root = root
-        self.root.title("15 game")
+        self.root.title("15 Game - IDA*")
         self.root.configure(bg=BG_COLOR)
         self.root.geometry("650x720")
 
@@ -128,7 +142,6 @@ class PuzzleGame:
                  fg=NEON_BLUE,
                  bg=BG_COLOR).pack(pady=10)
 
-        # MENU FRAME
         menu_frame = tk.Frame(self.root, bg=BG_COLOR)
         menu_frame.pack()
 
@@ -154,19 +167,15 @@ class PuzzleGame:
                   text="Apply",
                   bg=BTN_GREEN,
                   fg="white",
-                  activebackground=NEON_GREEN,
                   relief="flat",
-                  padx=10,
                   command=self.change_size).grid(row=0, column=2, padx=5)
 
-        # SCORE
         self.score_lbl = tk.Label(self.root,
                                   font=("Arial", 14, "bold"),
                                   fg=NEON_GREEN,
                                   bg=BG_COLOR)
         self.score_lbl.pack(pady=8)
 
-        # BOARD FRAME (NEON EDGE EFFECT)
         self.board_outer = tk.Frame(self.root,
                                     bg=NEON_BLUE,
                                     padx=4, pady=4)
@@ -187,7 +196,6 @@ class PuzzleGame:
                   bg=BTN_BLUE,
                   fg="white",
                   relief="flat",
-                  activebackground=NEON_BLUE,
                   command=self.cpu_auto_solve).grid(row=0, column=0, padx=10)
 
         tk.Button(btn_frame,
@@ -195,12 +203,9 @@ class PuzzleGame:
                   bg=BTN_GREEN,
                   fg="white",
                   relief="flat",
-                  activebackground=NEON_GREEN,
                   command=self.start_game).grid(row=0, column=1, padx=10)
 
         self.animate_neon()
-
-    # ───────── NEON PULSE ─────────
 
     def animate_neon(self):
         current = self.board_outer.cget("bg")
@@ -228,9 +233,7 @@ class PuzzleGame:
                           font=("Arial", 14, "bold"),
                           fg="white",
                           bg=TILE_COLOR,
-                          activebackground=NEON_BLUE,
                           relief="flat",
-                          bd=0,
                           command=lambda i=i: self.human_move(i))
             b.grid(row=i//self.size,
                    column=i%self.size,
@@ -239,7 +242,7 @@ class PuzzleGame:
 
     def start_game(self):
 
-        self.shuffle_steps = 85 if self.size == 5 else 85
+        self.shuffle_steps = 35 if self.size == 4 else 45
 
         self.board = shuffle_board(self.goal,
                                    self.size,
@@ -308,9 +311,9 @@ class PuzzleGame:
 
     def cpu_turn(self):
 
-        solution = astar_solve(self.board,
-                               self.goal,
-                               self.size)
+        solution = ida_star(self.board,
+                            self.goal,
+                            self.size)
 
         if not solution or len(solution) < 2:
             return
@@ -333,8 +336,6 @@ class PuzzleGame:
         self.auto_mode = True
         self.turn = "CPU"
         self.cpu_turn()
-
-    # ───────── WINNER ─────────
 
     def declare_winner(self):
         self.turn = None
