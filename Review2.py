@@ -91,7 +91,67 @@ def get_quadrant_cells(size):
 
 def cells_to_indices(cells, size):
     return {r*size+c for (r,c) in cells}
+def solve_zone(board, size, goal_t, solve_positions, locked=None, max_nodes=200000):
+    """
+    Solve only the tiles at `solve_positions` to their goal values.
+    Other tiles in locked must not move.
+    Empty tile may wander anywhere on the board.
+    """
+    board = tuple(board)
+    goal_t = tuple(goal_t)
+    if locked is None:
+        locked = set()
 
+    def is_done(b):
+        return all(b[p] == goal_t[p] for p in solve_positions)
+
+    if is_done(board):
+        return [board]
+
+    goal_pos_map = {v: divmod(i, size) for i, v in enumerate(goal_t)}
+
+    def h(b):
+        dist = 0
+        for p in solve_positions:
+            v = b[p]
+            if v == 0:
+                continue
+            gr, gc = goal_pos_map.get(v, divmod(p, size))
+            cr, cc = divmod(p, size)
+            dist += abs(gr-cr) + abs(gc-cc)
+        return dist
+
+    def locked_ok(b):
+        for idx in locked:
+            if b[idx] != goal_t[idx]:
+                return False
+        return True
+
+    visited = {board: 0}
+    heap = [(h(board), 0, board, [board])]
+    nodes = 0
+
+    while heap:
+        f, g, state, path = heapq.heappop(heap)
+        nodes += 1
+        if nodes > max_nodes:
+            return None
+        if is_done(state):
+            return path
+        if visited.get(state, g) < g:
+            continue
+
+        e = state.index(0)
+        for m in get_valid_moves(list(state), size):
+            ns = swap_board(state, e, m)
+            if not locked_ok(ns):
+                continue
+            ng = g + 1
+            if ns not in visited or visited[ns] > ng:
+                visited[ns] = ng
+                heapq.heappush(heap, (ng + h(ns), ng, ns, path + [ns]))
+
+    return None
 def solve_full(board, goal_t, size, locked=None, max_nodes=500000):
     board = tuple(board)
     goal_t = tuple(goal_t)
@@ -615,6 +675,7 @@ if __name__ == "__main__":
     root = tk.Tk()
     PuzzleGame(root)
     root.mainloop()
+
 
 
 
