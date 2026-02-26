@@ -54,7 +54,55 @@ def count_correct(board, goal):
                if board[i] == goal[i] and board[i] != 0)
 
 
+def solve_full(board, goal_t, size, locked=None, max_nodes=500000):
+    board = tuple(board)
+    goal_t = tuple(goal_t)
+    if locked is None:
+        locked = set()
+    if board == goal_t:
+        return [board]
 
+    goal_pos = {v: divmod(i, size) for i, v in enumerate(goal_t)}
+
+    def h(b):
+        dist = 0
+        for i, v in enumerate(b):
+            if v == 0: continue
+            gr, gc = goal_pos[v]
+            cr, cc = divmod(i, size)
+            dist += abs(gr-cr) + abs(gc-cc)
+        return dist
+
+    def locked_ok(b):
+        for idx in locked:
+            if b[idx] != goal_t[idx]:
+                return False
+        return True
+
+    visited = {board: 0}
+    heap = [(h(board), 0, board, [board])]
+    nodes = 0
+
+    while heap:
+        f, g, state, path = heapq.heappop(heap)
+        nodes += 1
+        if nodes > max_nodes:
+            return None
+        if state == goal_t:
+            return path
+        if visited.get(state, g) < g:
+            continue
+        e = state.index(0)
+        for m in get_valid_moves(list(state), size):
+            ns = swap_board(state, e, m)
+            if not locked_ok(ns):
+                continue
+            ng = g + 1
+            if ns not in visited or visited[ns] > ng:
+                visited[ns] = ng
+                heapq.heappush(heap, (ng+h(ns), ng, ns, path+[ns]))
+    return None
+    
 
 
 def full_solve_dc(board, goal, size):
@@ -530,6 +578,7 @@ if __name__ == "__main__":
     root = tk.Tk()
     PuzzleGame(root)
     root.mainloop()
+
 
 
 
