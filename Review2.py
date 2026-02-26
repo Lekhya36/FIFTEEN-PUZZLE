@@ -91,6 +91,60 @@ def get_quadrant_cells(size):
 
 def cells_to_indices(cells, size):
     return {r*size+c for (r,c) in cells}
+
+def slide_tile_to(board, size, tile_pos, goal_pos, allowed, locked=None):
+    board = tuple(board)
+    if locked is None:
+        locked = set()
+
+    if tile_pos == goal_pos:
+        return [board]
+
+    e = board.index(0)
+    start = (e, tile_pos)
+
+    def h(state):
+        _, tp = state
+        tr, tc = divmod(tp, size)
+        gr, gc = divmod(goal_pos, size)
+        return abs(tr-gr) + abs(tc-gc)
+
+    visited = {start: 0}
+    heap = [(h(start), 0, e, tile_pos, board, [board])]
+
+    while heap:
+        f, g, ei, ti, cur_b, path = heapq.heappop(heap)
+
+        if ti == goal_pos:
+            return path
+
+        state = (ei, ti)
+        if visited.get(state, g) < g:
+            continue
+
+        cur_bl = list(cur_b)
+        for m in get_valid_moves(cur_bl, size):
+            if m not in allowed:
+                continue
+            if m in locked and m != ti:
+                continue
+
+            nb = list(cur_bl)
+            nb[ei], nb[m] = nb[m], nb[ei]
+            nb_t = tuple(nb)
+
+            new_ti = ei if m == ti else ti
+            new_ei = m
+            ns = (new_ei, new_ti)
+            ng = g + 1
+
+            if ns not in visited or visited[ns] > ng:
+                visited[ns] = ng
+                nh = h(ns)
+                heapq.heappush(heap, (ng+nh, ng, new_ei, new_ti, nb_t, path+[nb_t]))
+
+    return None
+    
 def solve_zone(board, size, goal_t, solve_positions, locked=None, max_nodes=200000):
     """
     Solve only the tiles at `solve_positions` to their goal values.
@@ -675,6 +729,7 @@ if __name__ == "__main__":
     root = tk.Tk()
     PuzzleGame(root)
     root.mainloop()
+
 
 
 
