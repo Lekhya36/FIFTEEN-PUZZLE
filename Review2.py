@@ -57,6 +57,40 @@ def count_correct(board, goal):
     return sum(1 for i in range(len(board))
                if board[i] == goal[i] and board[i] != 0)
 
+def get_quadrant_cells(size):
+    if size == 4:
+        buf_rows = {1, 2}
+        buf_cols = {1, 2}
+    else:  # 5x5
+        buf_rows = {2}
+        buf_cols = {2}
+
+    buffer_cells = set()
+    for r in range(size):
+        for c in range(size):
+            if r in buf_rows or c in buf_cols:
+                buffer_cells.add((r, c))
+
+    non_buf = [(r,c) for r in range(size) for c in range(size)
+               if (r,c) not in buffer_cells]
+
+    if size == 4:
+        mid_r = size // 2
+        mid_c = size // 2
+    else:
+        mid_r = size // 2
+        mid_c = size // 2
+
+    q0 = {(r,c) for (r,c) in non_buf if r < mid_r and c < mid_c}
+    q1 = {(r,c) for (r,c) in non_buf if r < mid_r and c >= mid_c}
+    q2 = {(r,c) for (r,c) in non_buf if r >= mid_r and c < mid_c}
+    q3 = {(r,c) for (r,c) in non_buf if r >= mid_r and c >= mid_c}
+
+    return buf_rows, buf_cols, buffer_cells, [q0, q1, q2, q3]
+
+
+def cells_to_indices(cells, size):
+    return {r*size+c for (r,c) in cells}
 
 def solve_full(board, goal_t, size, locked=None, max_nodes=500000):
     board = tuple(board)
@@ -581,6 +615,7 @@ if __name__ == "__main__":
     root = tk.Tk()
     PuzzleGame(root)
     root.mainloop()
+
 
 
 
