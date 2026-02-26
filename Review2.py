@@ -91,7 +91,31 @@ def get_quadrant_cells(size):
 
 def cells_to_indices(cells, size):
     return {r*size+c for (r,c) in cells}
+def bfs_move_empty(board, size, target, locked=None):
+    board = tuple(board)
+    e = board.index(0)
+    if e == target:
+        return [board]
+    if locked is None:
+        locked = set()
 
+    visited = {board}
+    queue = deque([(board, [board])])
+    while queue:
+        state, path = queue.popleft()
+        e = state.index(0)
+        for m in get_valid_moves(list(state), size):
+            ns = swap_board(state, e, m)
+            if state[m] != 0 and m in locked:
+                continue
+            if ns in visited:
+                continue
+            visited.add(ns)
+            np = path + [ns]
+            if ns.index(0) == target:
+                return np
+            queue.append((ns, np))
+    return None
 def slide_tile_to(board, size, tile_pos, goal_pos, allowed, locked=None):
     board = tuple(board)
     if locked is None:
@@ -729,6 +753,7 @@ if __name__ == "__main__":
     root = tk.Tk()
     PuzzleGame(root)
     root.mainloop()
+
 
 
 
