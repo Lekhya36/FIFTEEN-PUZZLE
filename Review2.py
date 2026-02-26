@@ -116,57 +116,147 @@ def astar_solve(start, goal_t, size, locked=None, max_nodes=400000):
     return None
 
 
-# WE IMPLEMENTED USING CONSTRAINED DIVIDE & CONQUER SINCE ANY WAY WE TRY TO SOLVE EVERY MOVE IS DEPENDENT ON THE OTHER MOVE
-# SO FROM TOP TO BOTTOM IT TAKES EACH ROW AND THEN CALCULATES CURRENT TO GOAL POSITION BOARD STATES 
-# THEN IN D&C WE ARE ADDING TO FINAL_PATH ONLY THE STATES THAT ARE MADE TO GET CORRECT POSITIONS IN THAT ROW 
-# THEN WE WILL LOCK THAT ROW AND MOVE TO NEXT ROW.
-# THE LAST 2 ROWS ALONE WILL BE CALCULATED SEPERATELY SINCE IF LAST TO 2ND ROW IS SOLVED AND LOCKED THEN THERE MIGHT BE CHANCE OF LAST ROW NOT GETTING SOLVED
-
 def full_solve_dc(board, goal, size):
     """
-    Divide & Conquer: split puzzle into row sub-problems.
-    Each solved with A* + DP memoization.
-    Returns full list of board-state tuples from start → goal.
+    TRUE Divide & Conquer — Quadrant Based:
+
+    DIVIDE:  Split board into 4 independent quadrants + shared buffer (cross).
+    CONQUER: Solve each quadrant independently as its own sub-problem.
+    COMBINE: Merge via buffer — buffer solved last, then empty passed between quadrants.
+
+    Phases:
+      0. Move empty tile into buffer zone (setup for D&C)
+      1. For each quadrant: pull needed tiles from buffer → place in quadrant (D&C phase)
+      2. Score quadrants by heuristic → determine solve order (parallel analysis)
+      3. Solve buffer zone (independent sub-problem)
+      4. Each quadrant independently solves itself using solve_zone (locked others)
+      5. Pass empty tile to next quadrant → final quadrant pushes empty to goal
     """
-    current = tuple(board)
+    current = list(board)
     goal_t  = tuple(goal)
-    full_path = [current]
-    locked = set()
+    full_path = [tuple(current)]
 
-    # D&C: conquer each row as independent sub-problem
-    for row in range(size - 2):
-        row_positions = list(range(row * size, row * size + size))
+    if tuple(current) == goal_t:
+        return full_path
 
-        path = astar_solve(current, goal_t, size, locked, max_nodes=400000)
-        if path is None:
-            path = astar_solve(current, goal_t, size, set(), max_nodes=800000)
-            if path is None:
-                break
-            full_path += list(path[1:])
+    buf_rows, buf_cols, buffer_cells, quadrants = get_quadrant_cells(size)
+    buf_idx   = cells_to_indices(buffer_cells, size)
+    quad_idx  = [cells_to_indices(q, size) for q in quadrants]
+
+    def append_seg(seg):
+        nonlocal current
+        if not seg or len(seg) <= 1:
+            return
+        for st in seg[1:]:
+            full_path.append(tuple(st))
+        current = list(full_path[-1])
+
+    def cur_t():
+        return tuple(current)
+
+    # ── Phase 0: Move empty into buffer ──────────────────────
+    e_now = find_empty(current)
+    if e_now not in buf_idx:
+        er, ec = divmod(e_now, size)
+        target_buf = min(buf_idx, key=lambda idx:
+            abs(divmod(idx,size)[0]-er) + abs(divmod(idx,size)[1]-ec))
+        seg = bfs_move_empty(current, size, target_buf)
+        if seg:
+            append_seg(seg)
+
+    # ── Phase 1: D&C — Pull buffer tiles into their quadrants ─
+    for qi, q_set in enumerate(quad_idx):
+        allowed_zone = buf_idx | q_set
+
+        needed = {goal_t[pos]: pos for pos in q_set}
+
+        for tile_val, g_pos in needed.items():
+            t_pos = list(current).index(tile_val)
+            if t_pos not in buf_idx:
+                continue
+
+            seg = slide_tile_to(current, size, t_pos, g_pos, allowed_zone)
+            if seg:
+                append_seg(seg)
+
+    # ── Phase 2: Heuristic scoring — determine solve order ───
+    def quad_score(qi):
+        return sum(1 for pos in quad_idx[qi] if current[pos] == goal_t[pos])
+
+    solve_order = sorted(range(4), key=quad_score)
+
+    # ── Phase 3: Solve buffer zone (independent sub-problem) ─
+    pre_locked = set()
+    for qi in range(4):
+        for pos in quad_idx[qi]:
+            if current[pos] == goal_t[pos]:
+                pre_locked.add(pos)
+
+    buf_seg = solve_zone(current, size, goal_t, buf_idx, locked=pre_locked,
+                         max_nodes=150000)
+    if buf_seg:
+        append_seg(buf_seg)
+
+    if cur_t() == goal_t:
+        return full_path
+
+    # ── Phase 4: Each quadrant independently solves itself ───
+    all_locked = set()
+
+    for qi in solve_order:
+        q_set = quad_idx[qi]
+
+        locked_now = set(all_locked)
+        for qj in range(4):
+            if qj != qi:
+                for pos in quad_idx[qj]:
+                    if current[pos] == goal_t[pos]:
+                        locked_now.add(pos)
+
+        e_now = find_empty(current)
+        if e_now not in buf_idx:
+            er, ec = divmod(e_now, size)
+            t_buf = min(buf_idx, key=lambda idx:
+                abs(divmod(idx,size)[0]-er) + abs(divmod(idx,size)[1]-ec))
+            seg = bfs_move_empty(current, size, t_buf, locked=locked_now)
+            if seg:
+                append_seg(seg)
+
+        seg = solve_zone(current, size, goal_t, q_set,
+                         locked=locked_now, max_nodes=300000)
+        if seg:
+            for state in seg[1:]:
+                full_path.append(tuple(state))
+                current = list(state)
+                if all(current[p] == goal_t[p] for p in q_set):
+                    break
+
+        for pos in q_set:
+            if current[pos] == goal_t[pos]:
+                all_locked.add(pos)
+
+        if cur_t() == goal_t:
             return full_path
 
-        # Advance until this row is fully correct (D&C: stop at sub-problem boundary)
-        for state in path[1:]:
-            full_path.append(state)
-            current = state
-            if all(state[p] == goal_t[p] for p in row_positions):
-                break
+    # ── Phase 5: Final cleanup ────────────────────────────────
+    remaining = {p for p in range(size*size) if current[p] != goal_t[p]}
 
-        # Lock solved row before next sub-problem
-        for p in row_positions:
-            locked.add(p)
+    if remaining:
+        seg = solve_zone(current, size, goal_t, remaining,
+                         locked=all_locked, max_nodes=400000)
+        if seg:
+            append_seg(seg)
 
-        if current == goal_t:
-            return full_path
-
-    # Solve last 2 rows
-    path = astar_solve(current, goal_t, size, locked, max_nodes=600000)
-    if path is None:
-        path = astar_solve(current, goal_t, size, set(), max_nodes=1000000)
-    if path:
-        full_path += list(path[1:])
+    if cur_t() != goal_t:
+        seg = solve_full(current, goal_t, size,
+                         locked=all_locked, max_nodes=800000)
+        if seg is None:
+            seg = solve_full(current, goal_t, size, max_nodes=1500000)
+        if seg:
+            append_seg(seg)
 
     return full_path
+
 
 # GAME CLASS
 
@@ -499,5 +589,6 @@ if __name__ == "__main__":
     root = tk.Tk()
     PuzzleGame(root)
     root.mainloop()
+
 
 
