@@ -252,7 +252,7 @@ def full_solve_dc(board, goal, size):
 class PuzzleGame:
     def __init__(self, root):
         self.root = root
-        self.root.title("Sliding Puzzle — Divide & Conquer + DP")
+        self.root.title("Sliding Puzzle — Quadrant D&C")
         self.root.configure(bg=BG_COLOR)
 
         self.solution_path = []
@@ -264,7 +264,7 @@ class PuzzleGame:
         self.build_ui()
         self.start_game()
 
-    # ──────────────────────────────────
+    # ── Settings ─────────────────────────────────────────────
     def ask_settings(self):
         size_choice = simpledialog.askstring(
             "Board Size",
@@ -272,17 +272,16 @@ class PuzzleGame:
         )
         if size_choice == "24":
             self.size = 5
-            self.shuffle_steps = 45
+            self.shuffle_steps = 40
         else:
             self.size = 4
             self.shuffle_steps = 35
         self.goal = create_goal(self.size)
 
-    # ──────────────────────────────────
+    # ── Build UI ──────────────────────────────────────────────
     def build_ui(self):
         tk.Label(self.root, text="SLIDING PUZZLE",
                  font=("Arial", 22, "bold"), bg=BG_COLOR).pack(pady=(12,2))
-
 
         self.score_lbl = tk.Label(self.root, font=("Arial", 14, "bold"), bg=BG_COLOR)
         self.score_lbl.pack(pady=(8,2))
@@ -291,7 +290,6 @@ class PuzzleGame:
                                    bg=BG_COLOR, fg="#2C3E50")
         self.status_lbl.pack(pady=(0,6))
 
-        # Board
         self.board_frame = tk.Frame(self.root, bg=FRAME_COLOR, padx=10, pady=10)
         self.board_frame.pack(pady=4)
 
@@ -304,7 +302,6 @@ class PuzzleGame:
             b.grid(row=i//self.size, column=i%self.size, padx=4, pady=4)
             self.buttons.append(b)
 
-        # Control buttons
         btn_frame = tk.Frame(self.root, bg=BG_COLOR)
         btn_frame.pack(pady=12)
 
@@ -320,10 +317,19 @@ class PuzzleGame:
                   bg="#5DADE2", fg="white", font=("Arial", 11, "bold"),
                   width=13, command=self.cpu_auto_solve).grid(row=0, column=2, padx=8)
 
-        self.moves_lbl = tk.Label(self.root, font=("Arial", 10), bg=BG_COLOR, fg="#555")
+        self.moves_lbl = tk.Label(self.root, font=("Arial", 10),
+                                  bg=BG_COLOR, fg="#555")
         self.moves_lbl.pack(pady=(0,10))
 
-    # ──────────────────────────────────
+        legend = tk.Frame(self.root, bg=BG_COLOR)
+        legend.pack(pady=(0,8))
+        for text, color in [("Buffer(shared)", BUFFER_COLOR),
+                             ("Q1-TL", QUAD_COLORS[0]), ("Q2-TR", QUAD_COLORS[1]),
+                             ("Q3-BL", QUAD_COLORS[2]), ("Q4-BR", QUAD_COLORS[3])]:
+            tk.Label(legend, text=f" {text} ", bg=color,
+                     font=("Arial", 9), relief="ridge").pack(side="left", padx=2)
+
+    # ── Start Game ────────────────────────────────────────────
     def start_game(self):
         self.cpu_animating = False
         self.solution_path = []
@@ -339,12 +345,24 @@ class PuzzleGame:
         self.turn    = "HUMAN"
         self.running = True
 
-        self.update_ui()
-        self.set_status("🟢 Your turn! ")
+        _, _, buf_cells, quad_cells = get_quadrant_cells(self.size)
+        self.buffer_idx_set = cells_to_indices(buf_cells, self.size)
+        self.quad_idx_flat  = [cells_to_indices(q, self.size) for q in quad_cells]
 
-    # ──────────────────────────────────
+        self.update_ui()
+        self.set_status("🟢 Your turn!")
+
+    # ── UI helpers ────────────────────────────────────────────
     def set_status(self, msg):
         self.status_lbl.config(text=msg)
+
+    def get_zone_color(self, idx):
+        if idx in self.buffer_idx_set:
+            return BUFFER_COLOR
+        for qi, q_set in enumerate(self.quad_idx_flat):
+            if idx in q_set:
+                return QUAD_COLORS[qi]
+        return TILE_COLOR
 
     def update_ui(self, highlighted=None):
         valid_moves = get_valid_moves(self.board, self.size) if self.turn == "HUMAN" else []
@@ -355,43 +373,34 @@ class PuzzleGame:
                 btn.config(text="", bg=EMPTY_COLOR, state="disabled", relief="sunken")
             else:
                 is_correct = (v == self.goal[i])
-                is_valid   = (i in valid_moves)
                 is_hint    = (i == self.hint_index)
                 is_cpu_hi  = (i == highlighted)
+                is_valid   = (i in valid_moves)
 
-                if is_cpu_hi:
-                    bg = CPU_MOVE_COLOR
-                elif is_hint:
-                    bg = HINT_COLOR
-                elif is_correct:
-                    bg = CORRECT_COLOR
-                else:
-                    bg = TILE_COLOR
+                if is_cpu_hi:    bg = CPU_MOVE_COLOR
+                elif is_hint:    bg = HINT_COLOR
+                elif is_correct: bg = CORRECT_COLOR
+                else:            bg = self.get_zone_color(i)
 
-                fg = "white" if is_hint else "#2C3E50"
+                fg     = "white" if is_hint else "#2C3E50"
                 relief = "groove" if is_valid and not is_hint else "raised"
                 state  = "normal" if self.turn == "HUMAN" else "disabled"
                 btn.config(text=str(v), bg=bg, fg=fg, state=state, relief=relief)
 
         self.score_lbl.config(
-            text=f"👤 Human: {self.human_score}    🤖 CPU: {self.cpu_score}"
-        )
+            text=f"👤 Human: {self.human_score}    🤖 CPU: {self.cpu_score}")
         self.moves_lbl.config(
-            text=f"Moves —  You: {self.human_moves}   CPU: {self.cpu_moves}"
-        )
+            text=f"Moves —  You: {self.human_moves}   CPU: {self.cpu_moves}")
 
-    # ──────────────────────────────────
     def update_score(self, player):
         now = count_correct(self.board, self.goal)
         gained = now - self.prev_correct
         if gained > 0:
-            if player == "HUMAN":
-                self.human_score += gained
-            else:
-                self.cpu_score += gained
+            if player == "HUMAN": self.human_score += gained
+            else:                 self.cpu_score   += gained
         self.prev_correct = now
 
-    # ──────────────────────────────────
+    # ── Human move ────────────────────────────────────────────
     def human_move(self, idx):
         if not self.running or self.turn != "HUMAN":
             return
@@ -400,48 +409,51 @@ class PuzzleGame:
             return
 
         self.hint_index = None
-
         e = find_empty(self.board)
         self.board = list(swap_board(tuple(self.board), e, idx))
         self.human_moves += 1
         self.update_score("HUMAN")
-
-        # Invalidate solution — board changed by human
         self.solution_path = []
         self.solution_step = 0
-
         self.update_ui()
 
         if self.board == self.goal:
             self.show_result("Human")
             return
 
-        # Hand off to CPU
         self.turn = "CPU"
-        self.set_status("🤖 CPU is thinking...")
+        self.set_status("🤖 CPU is thinking (D&C Quadrant Solver)...")
         self.update_ui()
         self.root.after(450, self.cpu_turn)
 
-    # ──────────────────────────────────
+    # ── Ensure solution is computed ───────────────────────────
     def _ensure_solution(self):
-        """Compute D&C + DP solution from current board if not cached."""
         if not self.solution_path:
+            self.set_status("🤖 Computing D&C quadrant solution... please wait")
+            self.root.update()
             self.solution_path = full_solve_dc(self.board, self.goal, self.size)
             self.solution_step = 0
+
             if (not self.solution_path or
                     list(self.solution_path[-1]) != self.goal):
-                self.solution_path = []
-                return False
+                self.set_status("🤖 Trying fallback solver...")
+                self.root.update()
+                fallback = solve_full(self.board, tuple(self.goal), self.size,
+                                      max_nodes=2000000)
+                if fallback:
+                    self.solution_path = fallback
+                    self.solution_step = 0
+                else:
+                    self.solution_path = []
+                    return False
         return True
 
-    # ──────────────────────────────────
+    # ── CPU single turn ───────────────────────────────────────
     def cpu_turn(self):
-        """CPU makes exactly ONE move using the D&C + DP pre-computed path."""
         if not self.running:
             return
-
         if not self._ensure_solution():
-            self.set_status("❌ CPU couldn't compute a move. Try New Game.")
+            self.set_status("❌ CPU couldn't find solution. Try New Game.")
             self.turn = "HUMAN"
             self.update_ui()
             return
@@ -453,18 +465,14 @@ class PuzzleGame:
 
         next_state = self.solution_path[self.solution_step + 1]
         self.solution_step += 1
-
-        old_board = self.board[:]
+        old_board  = self.board[:]
         self.board = list(next_state)
         self.cpu_moves += 1
         self.update_score("CPU")
 
-        # Find which tile CPU moved (for blue highlight)
-        moved_tile = None
-        for i in range(len(self.board)):
-            if self.board[i] != 0 and old_board[i] == 0:
-                moved_tile = i
-                break
+        moved_tile = next(
+            (i for i in range(len(self.board))
+             if self.board[i] != 0 and old_board[i] == 0), None)
 
         self.update_ui(highlighted=moved_tile)
 
@@ -472,31 +480,24 @@ class PuzzleGame:
             self.show_result("CPU")
             return
 
-        # After brief highlight, restore normal colours and give turn back
         self.turn = "HUMAN"
-        self.set_status("🟢 Your turn! ")
-        self.root.after(500, lambda: self.update_ui())
+        self.set_status("🟢 Your turn!")
+        self.root.after(500, self.update_ui)
 
-    # ──────────────────────────────────
+    # ── Hint ──────────────────────────────────────────────────
     def show_hint(self):
-        """Highlight the tile the human should click next (from D&C+DP solution)."""
         if not self.running or self.turn != "HUMAN":
             self.set_status("⚠️  Hint only available on your turn!")
             return
-
         if not self._ensure_solution():
             self.set_status("💡 Couldn't compute hint right now.")
             return
-
         if self.solution_step + 1 >= len(self.solution_path):
             self.set_status("💡 You're almost there — keep going!")
             return
 
-        next_state = self.solution_path[self.solution_step + 1]
-        # The empty space will move to where the hint tile currently is
-        next_e = list(next_state).index(0)
-        self.hint_index = next_e   # tile human should click
-
+        next_state      = self.solution_path[self.solution_step + 1]
+        self.hint_index = list(next_state).index(0)
         self.update_ui()
         self.set_status("💡 Hint: Click the orange highlighted tile!")
         self.root.after(3500, self.clear_hint)
@@ -507,19 +508,18 @@ class PuzzleGame:
             self.update_ui()
             self.set_status("🟢 Your turn!  Click a tile next to the empty space.")
 
-    # ──────────────────────────────────
+    # ── CPU Auto Solve ────────────────────────────────────────
     def cpu_auto_solve(self):
-        """CPU plays ALL remaining moves automatically (auto mode)."""
         if not self.running or self.cpu_animating:
             return
         if not self._ensure_solution():
             self.set_status("❌ Could not compute solution. Try New Game.")
             return
 
-        self.turn = "CPU"
+        self.turn          = "CPU"
         self.cpu_animating = True
-        self.hint_index = None
-        self.set_status("🤖 CPU Auto-Solving with D&C + DP...")
+        self.hint_index    = None
+        self.set_status("🤖 CPU Auto-Solving with Quadrant D&C...")
         self.update_ui()
         self.root.after(300, self._auto_step)
 
@@ -535,16 +535,14 @@ class PuzzleGame:
 
         next_state = self.solution_path[self.solution_step + 1]
         self.solution_step += 1
-        old_board = self.board[:]
+        old_board  = self.board[:]
         self.board = list(next_state)
         self.cpu_moves += 1
         self.update_score("CPU")
 
-        moved_tile = None
-        for i in range(len(self.board)):
-            if self.board[i] != 0 and old_board[i] == 0:
-                moved_tile = i
-                break
+        moved_tile = next(
+            (i for i in range(len(self.board))
+             if self.board[i] != 0 and old_board[i] == 0), None)
 
         self.update_ui(highlighted=moved_tile)
         remaining = len(self.solution_path) - 1 - self.solution_step
@@ -557,9 +555,9 @@ class PuzzleGame:
 
         self.root.after(270, self._auto_step)
 
-    # ──────────────────────────────────
+    # ── Result ────────────────────────────────────────────────
     def show_result(self, winner):
-        self.running = False
+        self.running       = False
         self.cpu_animating = False
         emoji = "🏆" if winner == "Human" else "🤖"
         messagebox.showinfo(
@@ -572,8 +570,9 @@ class PuzzleGame:
             f"━━━━━━━━━━━━━━━━━━━━\n"
         )
 
+# ─────────────────────────────────────────────────────────────
 # MAIN
-
+# ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     root = tk.Tk()
     PuzzleGame(root)
