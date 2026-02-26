@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import simpledialog, messagebox
 import random
 import heapq
+from collections import deque
 
 # COLORS
 BG_COLOR       = "#EAF6F6"
@@ -12,6 +13,9 @@ EMPTY_COLOR    = "#82C0A6"
 BTN_COLOR      = "#58D68D"
 HINT_COLOR     = "#F39C12"
 CPU_MOVE_COLOR = "#AED6F1"
+BUFFER_COLOR   = "#D7BDE2"
+QUAD_COLORS    = ["#FADBD8", "#D6EAF8", "#D5F5E3", "#FDEBD0"]
+
 
 # BOARD UTILITIES
 def create_goal(size):
@@ -577,6 +581,7 @@ if __name__ == "__main__":
     root = tk.Tk()
     PuzzleGame(root)
     root.mainloop()
+
 
 
 
