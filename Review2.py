@@ -54,66 +54,7 @@ def count_correct(board, goal):
                if board[i] == goal[i] and board[i] != 0)
 
 
-# A* WITH DP MEMOIZATION
-# A* IS USED TO FIND SHORTEST PATH EFFICIENTLY 
-def astar_solve(start, goal_t, size, locked=None, max_nodes=400000):
-    """
-    A* search with DP memoization (visited dict = DP table).
-    locked: set of position indices that must always equal goal_t[idx].
-    Returns list of board tuples (path) or None.
-    """
-    if locked is None:
-        locked = set()
 
-    goal_pos = {v: divmod(i, size) for i, v in enumerate(goal_t)}
-
-    def h(board):
-        dist = 0
-        for i, v in enumerate(board):
-            if v == 0:
-                continue
-            gr, gc = goal_pos[v]
-            cr, cc = divmod(i, size)
-            dist += abs(gr-cr) + abs(gc-cc)
-        return dist
-
-    def locked_ok(board):
-        for idx in locked:
-            if board[idx] != goal_t[idx]:
-                return False
-        return True
-
-    start_t = tuple(start)
-    if start_t == goal_t:
-        return [start_t]
-
-    # DP table: { TUPLE OF BOARD STATE : NUMBER OF MOVES TO THAT STATE }
-    visited = {start_t: 0}
-    heap = [(h(start_t), 0, start_t, [start_t])]
-
-    nodes = 0
-    while heap:
-        f, g, board, path = heapq.heappop(heap)
-        nodes += 1
-        if nodes > max_nodes:
-            return None
-        if board == goal_t:
-            return path
-        # IF THE BOARD IS ALREADY VISITED WITH LESS NUMBER OF MOVES PREVIOUSLY THEN SKIP THAT MOVE 
-        if visited.get(board, g) < g:
-            continue
-        
-        e = board.index(0)
-        for m in get_valid_moves(list(board), size):
-            nb = swap_board(board, e, m)
-            if not locked_ok(nb):
-                continue
-            ng = g + 1
-            if nb not in visited or visited[nb] > ng:
-                visited[nb] = ng
-                heapq.heappush(heap, (ng + h(nb), ng, nb, path + [nb]))
-
-    return None
 
 
 def full_solve_dc(board, goal, size):
@@ -589,6 +530,7 @@ if __name__ == "__main__":
     root = tk.Tk()
     PuzzleGame(root)
     root.mainloop()
+
 
 
 
