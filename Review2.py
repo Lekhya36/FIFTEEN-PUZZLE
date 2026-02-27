@@ -169,16 +169,59 @@ def slide_tile_to(board, size, tile_pos, goal_pos, allowed, locked=None):
 
     return None
     
-def solve_zone(board, size, goal_t, solve_positions, locked=None, max_nodes=200000):
+# ─────────────────────────────────────────────────────────────
+# GREEDY BEST-FIRST SEARCH (GBFS) — ZONE SOLVER
+#
+# This is exactly what you described:
+#   1. From current state generate up to 4 possible neighbor states
+#   2. Compute heuristic distance h for each neighbor
+#   3. Pick (remove) the neighbor with the LEAST h → push to heap
+#   4. Pop next state = always the min-h state seen so far
+#   5. Repeat until zone solved
+#
+# KEY DIFFERENCES from old A*:
+#   - Heap ordered by h ONLY  (no g cost, no path length)
+#   - NO path stored inside each heap entry (saves memory)
+#   - Path reconstructed via parent pointers after solving
+#   - visited set only marks expanded states (not stored per heap entry)
+#
+# This means: we always chase the steepest-descent neighbor,
+# and if that branch gets stuck we can jump to the next best
+# queued state — but we never store entire paths per state.
+# ─────────────────────────────────────────────────────────────
+def gbfs_zone(board, size, goal_t, solve_positions, locked=None, max_nodes=200000):
     """
-    Solve only the tiles at `solve_positions` to their goal values.
-    Other tiles in locked must not move.
-    Empty tile may wander anywhere on the board.
+    Greedy Best-First Search for a zone.
+    Heap ordered by h(state) only — no g cost.
+    Path stored as parent pointers, not duplicated per heap entry.
+    Each expansion: generate 4 neighbors → push unvisited min-h ones.
     """
-    board = tuple(board)
+    board  = tuple(board)
     goal_t = tuple(goal_t)
     if locked is None:
         locked = set()
+
+    # Build goal position map for heuristic
+    goal_pos_map = {}
+    for i, v in enumerate(goal_t):
+        if v != 0:
+            goal_pos_map[v] = divmod(i, size)
+
+    def h(b):
+        """Manhattan distance for tiles in solve_positions only."""
+        dist = 0
+        for p in solve_positions:
+            v = b[p]
+            if v == 0:
+                continue
+            if v in goal_pos_map:
+                gr, gc = goal_pos_map[v]
+                cr, cc = divmod(p, size)
+                dist += abs(gr - cr) + abs(gc - cc)
+        return dist
+
+    def locked_ok(b):
+        return all(b[idx] == goal_t[idx] for idx in locked)
 
     def is_done(b):
         return all(b[p] == goal_t[p] for p in solve_positions)
@@ -186,48 +229,44 @@ def solve_zone(board, size, goal_t, solve_positions, locked=None, max_nodes=2000
     if is_done(board):
         return [board]
 
-    goal_pos_map = {v: divmod(i, size) for i, v in enumerate(goal_t)}
-
-    def h(b):
-        dist = 0
-        for p in solve_positions:
-            v = b[p]
-            if v == 0:
-                continue
-            gr, gc = goal_pos_map.get(v, divmod(p, size))
-            cr, cc = divmod(p, size)
-            dist += abs(gr-cr) + abs(gc-cc)
-        return dist
-
-    def locked_ok(b):
-        for idx in locked:
-            if b[idx] != goal_t[idx]:
-                return False
-        return True
-
-    visited = {board: 0}
-    heap = [(h(board), 0, board, [board])]
-    nodes = 0
+    # parent dict: state → parent_state (None for start)
+    # Stores only one state reference per entry — no full paths
+    parent  = {board: None}
+    visited = set()
+    heap    = [(h(board), board)]
+    nodes   = 0
 
     while heap:
-        f, g, state, path = heapq.heappop(heap)
+        f, state = heapq.heappop(heap)
+
+        if state in visited:
+            continue
+        visited.add(state)
         nodes += 1
         if nodes > max_nodes:
-            return None
-        if is_done(state):
-            return path
-        if visited.get(state, g) < g:
-            continue
+            break
 
+        if is_done(state):
+            # Reconstruct path by following parent pointers back to start
+            path = []
+            cur = state
+            while cur is not None:
+                path.append(cur)
+                cur = parent[cur]
+            return list(reversed(path))
+
+        # Generate up to 4 neighbor states
         e = state.index(0)
         for m in get_valid_moves(list(state), size):
             ns = swap_board(state, e, m)
+            if ns in visited:
+                continue
             if not locked_ok(ns):
                 continue
-            ng = g + 1
-            if ns not in visited or visited[ns] > ng:
-                visited[ns] = ng
-                heapq.heappush(heap, (ng + h(ns), ng, ns, path + [ns]))
+            if ns not in parent:
+                parent[ns] = state          # record parent (not full path)
+            # Push to heap ordered by h only (greedy — no g cost)
+            heapq.heappush(heap, (h(ns), ns))
 
     return None
 def solve_full(board, goal_t, size, locked=None, max_nodes=500000):
@@ -753,6 +792,7 @@ if __name__ == "__main__":
     root = tk.Tk()
     PuzzleGame(root)
     root.mainloop()
+
 
 
 
