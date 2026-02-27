@@ -321,31 +321,18 @@ def solve_full(board, goal_t, size, locked=None, max_nodes=500000):
 
 
 def full_solve_dc(board, goal, size):
-    """
-    TRUE Divide & Conquer — Quadrant Based:
-
-    DIVIDE:  Split board into 4 independent quadrants + shared buffer (cross).
-    CONQUER: Solve each quadrant independently as its own sub-problem.
-    COMBINE: Merge via buffer — buffer solved last, then empty passed between quadrants.
-
-    Phases:
-      0. Move empty tile into buffer zone (setup for D&C)
-      1. For each quadrant: pull needed tiles from buffer → place in quadrant (D&C phase)
-      2. Score quadrants by heuristic → determine solve order (parallel analysis)
-      3. Solve buffer zone (independent sub-problem)
-      4. Each quadrant independently solves itself using solve_zone (locked others)
-      5. Pass empty tile to next quadrant → final quadrant pushes empty to goal
-    """
-    current = list(board)
+   current = list(board)
     goal_t  = tuple(goal)
     full_path = [tuple(current)]
 
     if tuple(current) == goal_t:
         return full_path
 
-    buf_rows, buf_cols, buffer_cells, quadrants = get_quadrant_cells(size)
-    buf_idx   = cells_to_indices(buffer_cells, size)
-    quad_idx  = [cells_to_indices(q, size) for q in quadrants]
+    _, _, buffer_cells, quadrant_cells = get_quadrant_cells(size)
+    buf_idx  = cells_to_idx(buffer_cells, size)
+    quad_idx = [cells_to_idx(q, size) for q in quadrant_cells]
+
+    hard_locked = set()  # grows as we finish buffer + quadrants
 
     def append_seg(seg):
         nonlocal current
@@ -358,76 +345,107 @@ def full_solve_dc(board, goal, size):
     def cur_t():
         return tuple(current)
 
-    # ── Phase 0: Move empty into buffer ──────────────────────
+    # ══════════════════════════════════════════════════════════
+    # PHASE 0 — Move empty tile into buffer
+    # ══════════════════════════════════════════════════════════
     e_now = find_empty(current)
     if e_now not in buf_idx:
         er, ec = divmod(e_now, size)
-        target_buf = min(buf_idx, key=lambda idx:
+        tgt = min(buf_idx, key=lambda idx:
             abs(divmod(idx,size)[0]-er) + abs(divmod(idx,size)[1]-ec))
-        seg = bfs_move_empty(current, size, target_buf)
+        seg = bfs_move_empty(current, size, tgt)
         if seg:
             append_seg(seg)
 
-    # ── Phase 1: D&C — Pull buffer tiles into their quadrants ─
+    # ══════════════════════════════════════════════════════════
+    # PHASE 1 — Pull buffer tiles into their quadrants (D&C divide)
+    # ══════════════════════════════════════════════════════════
     for qi, q_set in enumerate(quad_idx):
         allowed_zone = buf_idx | q_set
-
         needed = {goal_t[pos]: pos for pos in q_set}
 
         for tile_val, g_pos in needed.items():
             t_pos = list(current).index(tile_val)
             if t_pos not in buf_idx:
                 continue
-
             seg = slide_tile_to(current, size, t_pos, g_pos, allowed_zone)
             if seg:
                 append_seg(seg)
 
-    # ── Phase 2: Heuristic scoring — determine solve order ───
-    def quad_score(qi):
-        return sum(1 for pos in quad_idx[qi] if current[pos] == goal_t[pos])
+    if cur_t() == goal_t:
+        return full_path
 
-    solve_order = sorted(range(4), key=quad_score)
+    # ══════════════════════════════════════════════════════════
+    # PHASE 2 — SOLVE BUFFER FULLY
+    # GBFS: heap ordered by h, path via parent pointers, no path per entry
+    # Lock ALL buffer tiles that end up correct
+    # ══════════════════════════════════════════════════════════
+    seg = gbfs_zone(current, size, goal_t, buf_idx,
+                    locked=hard_locked, max_nodes=150000)
+    if seg:
+        append_seg(seg)
 
-    # ── Phase 3: Solve buffer zone (independent sub-problem) ─
-    pre_locked = set()
-    for qi in range(4):
-        for pos in quad_idx[qi]:
-            if current[pos] == goal_t[pos]:
-                pre_locked.add(pos)
-
-    buf_seg = solve_zone(current, size, goal_t, buf_idx, locked=pre_locked,
-                         max_nodes=150000)
-    if buf_seg:
-        append_seg(buf_seg)
+    # Lock all buffer tiles now in correct position
+    buf_locked = set()
+    for pos in buf_idx:
+        if current[pos] == goal_t[pos]:
+            buf_locked.add(pos)
+            hard_locked.add(pos)
 
     if cur_t() == goal_t:
         return full_path
 
-    # ── Phase 4: Each quadrant independently solves itself ───
-    all_locked = set()
+    # ══════════════════════════════════════════════════════════
+    # PHASE 3 — Heuristic ordering: solve hardest quadrant first
+    # ══════════════════════════════════════════════════════════
+    def quad_score(qi):
+        return sum(1 for pos in quad_idx[qi] if current[pos] == goal_t[pos])
+
+    solve_order = sorted(range(4), key=quad_score)  # fewest correct first
+
+    # ══════════════════════════════════════════════════════════
+    # PHASE 3 MAIN LOOP
+    # For each quadrant:
+    #   a) Find adjacent buffer cells → unlock ONLY those
+    #   b) GBFS solve quadrant:
+    #      - generate 4 neighbors each step
+    #      - heap ordered by h only (greedy, no g cost)
+    #      - path via parent pointers (no path stored per state in heap)
+    #   c) Lock solved quadrant tiles
+    #   d) Re-solve buffer (all buffer unlocked, GBFS, re-lock correct)
+    # ══════════════════════════════════════════════════════════
+    quad_locked = set()
 
     for qi in solve_order:
         q_set = quad_idx[qi]
 
-        locked_now = set(all_locked)
+        # ── a) Adjacent buffer cells for this quadrant ───────────
+        adj_buf = adjacent_cells(q_set, size) & buf_idx
+
+        # Build locked: hard_locked minus adjacent buffer (those get unlocked)
+        # Plus already-solved tiles from other quadrants
+        locked_for_q = (hard_locked - adj_buf) | quad_locked
         for qj in range(4):
             if qj != qi:
                 for pos in quad_idx[qj]:
                     if current[pos] == goal_t[pos]:
-                        locked_now.add(pos)
+                        locked_for_q.add(pos)
 
+        # ── b) Move empty into buffer near this quadrant ─────────
         e_now = find_empty(current)
         if e_now not in buf_idx:
             er, ec = divmod(e_now, size)
-            t_buf = min(buf_idx, key=lambda idx:
+            tgt = min(buf_idx, key=lambda idx:
                 abs(divmod(idx,size)[0]-er) + abs(divmod(idx,size)[1]-ec))
-            seg = bfs_move_empty(current, size, t_buf, locked=locked_now)
+            seg = bfs_move_empty(current, size, tgt, locked=locked_for_q)
             if seg:
                 append_seg(seg)
 
-        seg = solve_zone(current, size, goal_t, q_set,
-                         locked=locked_now, max_nodes=300000)
+        # ── c) GBFS solve quadrant ────────────────────────────────
+        # Heap by h only. 4 neighbors generated each expansion.
+        # Parent dict tracks path. No path stored per heap entry.
+        seg = gbfs_zone(current, size, goal_t, q_set,
+                        locked=locked_for_q, max_nodes=300000)
         if seg:
             for state in seg[1:]:
                 full_path.append(tuple(state))
@@ -435,31 +453,34 @@ def full_solve_dc(board, goal, size):
                 if all(current[p] == goal_t[p] for p in q_set):
                     break
 
+        # ── d) Lock this quadrant's solved tiles ──────────────────
         for pos in q_set:
             if current[pos] == goal_t[pos]:
-                all_locked.add(pos)
+                quad_locked.add(pos)
+                hard_locked.add(pos)
 
         if cur_t() == goal_t:
             return full_path
 
-    # ── Phase 5: Final cleanup ────────────────────────────────
-    remaining = {p for p in range(size*size) if current[p] != goal_t[p]}
+        # ── e) Re-solve buffer: unlock all buffer, GBFS, re-lock ──
+        temp_locked = hard_locked - buf_idx   # only solved quadrant tiles locked
 
-    if remaining:
-        seg = solve_zone(current, size, goal_t, remaining,
-                         locked=all_locked, max_nodes=400000)
+        seg = gbfs_zone(current, size, goal_t, buf_idx,
+                        locked=temp_locked, max_nodes=150000)
         if seg:
             append_seg(seg)
 
-    if cur_t() != goal_t:
-        seg = solve_full(current, goal_t, size,
-                         locked=all_locked, max_nodes=800000)
-        if seg is None:
-            seg = solve_full(current, goal_t, size, max_nodes=1500000)
-        if seg:
-            append_seg(seg)
+        # Re-lock buffer tiles that are correct
+        buf_locked = set()
+        for pos in buf_idx:
+            if current[pos] == goal_t[pos]:
+                buf_locked.add(pos)
+                hard_locked.add(pos)
+            else:
+                hard_locked.discard(pos)
 
-    return full_path
+        if cur_t() == goal_t:
+            return full_path
 
 
 # GAME CLASS
@@ -792,6 +813,7 @@ if __name__ == "__main__":
     root = tk.Tk()
     PuzzleGame(root)
     root.mainloop()
+
 
 
 
