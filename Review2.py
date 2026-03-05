@@ -70,30 +70,48 @@ class PureBacktrackSolver:
         self.backtracks = 0
         self.found      = False
 
+        # --- DP MEMOIZATION TABLE ---
+        # stores best depth visited for each state
+        self.memo = {}
+
     def solve(self):
         for depth_limit in range(1, 300):
             self.trace = []
             self.found = False
+            self.memo  = {}  # reset DP cache each iteration
+
             self._bt([self.start], {self.start}, depth_limit)
+
             if self.found:
                 break
         return self.trace
 
+    def _bt(self, path, seen, limit):
 
-
-def _bt(self, path, seen, limit):
         if self.found:
             return
+
         cur = path[-1]
+
+        # ---------- DP PRUNING ----------
+        depth = len(path) - 1
+
+        # if we already reached this state at a smaller depth
+        # there is no reason to explore again
+        if cur in self.memo and self.memo[cur] <= depth:
+            return
+
+        self.memo[cur] = depth
+        # --------------------------------
 
         moved = None
         if len(path) >= 2:
             prev = path[-2]
             for i in range(len(cur)):
                 if cur[i] != prev[i] and cur[i] != 0:
-                    moved = i; break
+                    moved = i
+                    break
 
-        # PURPLE: trying this move
         self.trace.append(("try", cur, moved))
 
         if cur == self.goal_t:
@@ -105,21 +123,32 @@ def _bt(self, path, seen, limit):
             return
 
         for tile_idx in get_moves(list(cur), self.size):
+
             nb = apply_move(cur, tile_idx)
+
             if nb in seen:
                 continue
-            path.append(nb); seen.add(nb)
+
+            path.append(nb)
+            seen.add(nb)
+
             self._bt(path, seen, limit)
-            path.pop(); seen.discard(nb)
+
+            path.pop()
+            seen.discard(nb)
+
             if self.found:
                 return
-            # RED: dead end — backtracking
+
             bt = None
             for i in range(len(nb)):
                 if nb[i] != cur[i] and nb[i] != 0:
-                    bt = i; break
+                    bt = i
+                    break
+
             self.trace.append(("back", cur, bt))
             self.backtracks += 1
+
 
 class RuntimeGraph:
     """
@@ -855,4 +884,5 @@ if __name__ == "__main__":
     root = tk.Tk()
     Launcher(root)
     root.mainloop()
+
 
