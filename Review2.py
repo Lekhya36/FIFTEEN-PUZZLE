@@ -127,128 +127,76 @@ def _bt(self, path, seen, limit):
             self.backtracks += 1
 # GBFS ZONE SOLVER
 
-def gbfs_zone(board, size, goal_t, solve_positions, locked=None,
-              max_nodes=300000, fill_only=False, working_zone=None):
-    board  = tuple(board)
-    goal_t = tuple(goal_t)
-    if locked is None:
-        locked = set()
+class Launcher:
+    def __init__(self, root):
+        self.root = root
+        root.title("Sliding Puzzle — Backtracking Visualizer")
+        root.geometry("620x440")
+        root.configure(bg=BG_MAIN)
+        root.resizable(True, True)
+        self._build()
 
-    # Deserialise frozensets received from subprocess 
-    if isinstance(locked, frozenset):
-        locked = set(locked)
-    if isinstance(solve_positions, frozenset):
-        solve_positions = set(solve_positions)
-    if working_zone is not None and isinstance(working_zone, frozenset):
-        working_zone = set(working_zone)
+    def _build(self):
+        tf  = tkfont.Font(family="Georgia",  size=28, weight="bold")
+        sf  = tkfont.Font(family="Verdana",  size=9)
+        bf  = tkfont.Font(family="Verdana",  size=12, weight="bold")
+        smf = tkfont.Font(family="Verdana",  size=9)
+        hf  = tkfont.Font(family="Verdana",  size=9,  weight="bold")
 
-    goal_pos_map = {}
-    for i, v in enumerate(goal_t):
-        if v != 0:
-            goal_pos_map[v] = divmod(i, size)
+        # Header
+        hdr = tk.Frame(self.root, bg=HDR_BG, pady=18)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="SLIDING PUZZLE",
+                 font=tf, bg=HDR_BG, fg="#FFFFFF").pack()
+        tk.Label(hdr, text="Backtracking Solver  —  Step-by-Step Visualizer",
+                 font=sf, bg=HDR_BG, fg="#AEB6BF").pack(pady=(2,0))
 
-    def h(b):
-        dist = 0
-        for i in range(len(b)):
-            v = b[i]
-            if v == 0:
-                continue
-            if v in goal_pos_map:
-                if goal_t.index(v) in solve_positions:
-                    cr, cc = divmod(i, size)
-                    if fill_only:
-                        if i not in solve_positions:
-                            min_d = 999
-                            for sp in solve_positions:
-                                sr, sc = divmod(sp, size)
-                                d = abs(sr - cr) + abs(sc - cc)
-                                if d < min_d:
-                                    min_d = d
-                            dist += min_d
-                    else:
-                        gr, gc = goal_pos_map[v]
-                        dist += abs(gr - cr) + abs(gc - cc)
-        if fill_only:
-            missing = [goal_t[p] for p in solve_positions
-                       if goal_t[p] != 0 and
-                       b[p] not in {goal_t[p2] for p2 in solve_positions
-                                    if goal_t[p2] != 0}]
-            if missing:
-                locs = [i for i in range(len(b)) if b[i] in missing]
-                if locs:
-                    er, ec = divmod(b.index(0), size)
-                    dist += min(abs(divmod(m, size)[0]-er) +
-                                abs(divmod(m, size)[1]-ec) for m in locs)
-        return dist
+        # Colour legend
+        lf = tk.Frame(self.root, bg=BG_MAIN, pady=18); lf.pack()
+        tk.Label(lf, text="COLOUR LEGEND", font=hf,
+                 bg=BG_MAIN, fg=TEXT_MID).pack(pady=(0,10))
+        leg = tk.Frame(lf, bg=BG_MAIN); leg.pack()
+        for txt, bg, fg in [
+            ("  PURPLE = Trying a move  ",   TRY_BG,  TRY_FG),
+            ("  RED = Backtracking!  ",       BACK_BG, BACK_FG),
+            ("  GREEN = Correct position  ", DONE_BG, DONE_FG),
+        ]:
+            b = tk.Frame(leg, bg=bg, padx=14, pady=10); b.pack(side="left", padx=8)
+            tk.Label(b, text=txt, font=smf, bg=bg, fg=fg).pack()
 
-    def locked_ok(b):
-        return all(b[idx] == goal_t[idx] for idx in locked if goal_t[idx] != 0)
+        # Puzzle selection cards
+        cards = tk.Frame(self.root, bg=BG_MAIN, pady=10)
+        cards.pack(fill="x", padx=50)
+        cards.columnconfigure(0, weight=1)
+        cards.columnconfigure(1, weight=1)
+        self._card(cards, "15 PUZZLE", "4 × 4 grid  ·  Numbers 1–15",
+                   "#1A5276", BTN_BLUE,  lambda: self._go(4), 0)
+        self._card(cards, "25 PUZZLE", "5 × 5 grid  ·  Numbers 1–24  ·  Harder!",
+                   "#7D3C98", BTN_PURPLE, lambda: self._go(5), 1)
 
-    def is_done(b):
-        if fill_only:
-            required = {goal_t[p] for p in solve_positions if goal_t[p] != 0}
-            in_zone  = {b[p] for p in solve_positions}
-            return required.issubset(in_zone)
-        return all(b[p] == goal_t[p] for p in solve_positions)
+    def _card(self, parent, title, sub, title_color, btn_color, cmd, col):
+        card = tk.Frame(parent, bg=BG_PANEL, padx=24, pady=20,
+                        highlightbackground=btn_color, highlightthickness=2)
+        card.grid(row=0, column=col, padx=12, pady=8, sticky="nsew")
+        bf = tkfont.Font(family="Verdana", size=13, weight="bold")
+        sf = tkfont.Font(family="Verdana", size=9)
+        tk.Label(card, text=title, font=bf,
+                 bg=BG_PANEL, fg=title_color).pack()
+        tk.Label(card, text=sub, font=sf,
+                 bg=BG_PANEL, fg=TEXT_MID).pack(pady=5)
+        tk.Button(card, text=f"▶  Play {title}", font=bf,
+                  bg=btn_color, fg="white", relief="flat",
+                  padx=14, pady=8, cursor="hand2",
+                  activebackground=btn_color, command=cmd).pack(pady=(12,0))
 
-    if is_done(board):
-        return [board]
-
-    parent  = {board: (None, 0)}
-    visited = set()
-    heap    = [(h(board) * 10, h(board), 0, board)]
-    nodes   = 0
-
-    while heap:
-        f, current_h, g, state = heapq.heappop(heap)
-        if state in visited:
-            continue
-        visited.add(state)
-        nodes += 1
-        if nodes > max_nodes:
-            break
-
-        if is_done(state):
-            path = []
-            cur  = state
-            while cur is not None:
-                path.append(cur)
-                cur = parent[cur][0]
-            return list(reversed(path))
-
-        prev_state = parent[state][0]
-        e = state.index(0)
-        for m in get_valid_moves(list(state), size):
-            if working_zone is not None and (e not in working_zone or
-                                             m not in working_zone):
-                continue
-            ns = swap_board(state, e, m)
-            if ns in visited:
-                continue
-            # Anti-backtrack: skip reversal of previous move
-            if prev_state is not None and ns == prev_state:
-                continue
-            if not locked_ok(ns):
-                continue
-            if ns not in parent or parent[ns][1] > g + 1:
-                parent[ns] = (state, g + 1)
-                new_h = h(ns)
-                new_f = (g + 1) + 10 * new_h
-                heapq.heappush(heap, (new_f, new_h, g + 1, ns))
-
-    return None
+    def _go(self, size):
+        self.root.destroy()
+        r = tk.Tk()
+        PuzzleGame(r, size)
+        r.mainloop()
 
 
-# TOP-LEVEL WORKER — must be at module level for pickle
-#
-# Python's multiprocessing serialises (pickles) functions and data
-# across process boundaries. Nested functions can't be pickled.
-# This worker sits at module level so every spawned process can
-# import and call it cleanly.
-#
-# Each call receives one candidate first-move (one tile adjacent to
-# the empty cell). It makes that move and runs a full gbfs_zone from
-# the resulting board — completely independently, in its own OS process.
+
 
 def _branch_worker(args):
     """
@@ -1003,6 +951,7 @@ if __name__ == "__main__":
     root = tk.Tk()
     Launcher(root)
     root.mainloop()
+
 
 
 
