@@ -125,7 +125,162 @@ def _bt(self, path, seen, limit):
                     bt = i; break
             self.trace.append(("back", cur, bt))
             self.backtracks += 1
-# GBFS ZONE SOLVER
+
+class RuntimeGraph:
+    """
+    A separate Toplevel window that shows a live line graph of:
+      - Steps Tried (purple line)
+      - Backtracks   (red line)
+    plotted against step number (x-axis) as the solver replays.
+    """
+    SAMPLE_EVERY = 10   # record a data point every N steps for performance
+
+    def __init__(self, parent):
+        self.win = tk.Toplevel(parent)
+        self.win.title("Runtime Graph — Backtracks vs Steps")
+        self.win.configure(bg=BG_PANEL)
+        self.win.resizable(True, True)
+        self.win.geometry("520x360")
+
+        # Header
+        hdr = tk.Frame(self.win, bg=HDR_BG, pady=8)
+        hdr.pack(fill="x")
+        hf = tkfont.Font(family="Verdana", size=10, weight="bold")
+        tk.Label(hdr, text="RUNTIME GRAPH  —  Steps Tried & Backtracks",
+                 font=hf, bg=HDR_BG, fg="#FFFFFF").pack()
+
+        # Legend row
+        lf = tk.Frame(self.win, bg=BG_PANEL, pady=4)
+        lf.pack()
+        sf = tkfont.Font(family="Verdana", size=8)
+        for txt, col in [("● Steps Tried", TRY_BG), ("● Backtracks", BACK_BG)]:
+            tk.Label(lf, text=txt, font=sf, bg=BG_PANEL, fg=col).pack(side="left", padx=14)
+
+        # Canvas
+        self.canvas = tk.Canvas(self.win, bg="#1C2833",
+                                highlightthickness=0)
+        self.canvas.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        # Data
+        self.tries_data  = []   # cumulative tries per sample point
+        self.backs_data  = []   # cumulative backtracks per sample point
+        self._step_count = 0
+        self._tries_cum  = 0
+        self._backs_cum  = 0
+
+        self.win.bind("<Configure>", lambda e: self._redraw())
+
+    def reset(self):
+        self.tries_data  = []
+        self.backs_data  = []
+        self._step_count = 0
+        self._tries_cum  = 0
+        self._backs_cum  = 0
+        self.canvas.delete("all")
+
+    def record(self, action):
+        """Call this on every step during playback."""
+        self._step_count += 1
+        if action == "try":
+            self._tries_cum += 1
+        elif action == "back":
+            self._backs_cum += 1
+
+        if self._step_count % self.SAMPLE_EVERY == 0:
+            self.tries_data.append(self._tries_cum)
+            self.backs_data.append(self._backs_cum)
+            self._redraw()
+
+    def finalise(self):
+        """Force a final redraw after solve completes."""
+        self.tries_data.append(self._tries_cum)
+        self.backs_data.append(self._backs_cum)
+        self._redraw()
+
+    def _redraw(self):
+        c = self.canvas
+        c.delete("all")
+        W = c.winfo_width()
+        H = c.winfo_height()
+        if W < 50 or H < 50:
+            return
+
+        PAD_L, PAD_R, PAD_T, PAD_B = 52, 20, 20, 36
+
+        n = len(self.tries_data)
+        if n < 2:
+            c.create_text(W//2, H//2, text="Waiting for data…",
+                          fill="#AAB7B8",
+                          font=("Verdana", 10))
+            return
+
+        # Background grid
+        max_val = max(max(self.tries_data, default=1),
+                      max(self.backs_data,  default=1), 1)
+
+        chart_w = W - PAD_L - PAD_R
+        chart_h = H - PAD_T - PAD_B
+
+        # Grid lines (5 horizontal)
+        grid_f = tkfont.Font(family="Verdana", size=7)
+        for i in range(6):
+            y = PAD_T + chart_h - int(i / 5 * chart_h)
+            c.create_line(PAD_L, y, W - PAD_R, y,
+                          fill="#2E4053", width=1)
+            val = int(i / 5 * max_val)
+            c.create_text(PAD_L - 6, y, text=str(val),
+                          fill="#AAB7B8", anchor="e",
+                          font=grid_f)
+
+        # X-axis labels
+        step_total = n * self.SAMPLE_EVERY
+        for frac in [0, 0.25, 0.5, 0.75, 1.0]:
+            xi = int(frac * (n - 1))
+            x  = PAD_L + int(frac * chart_w)
+            c.create_text(x, H - PAD_B + 10,
+                          text=str(xi * self.SAMPLE_EVERY),
+                          fill="#AAB7B8", font=grid_f)
+
+        # Axes
+        c.create_line(PAD_L, PAD_T, PAD_L, H - PAD_B,
+                      fill="#AAB7B8", width=2)
+        c.create_line(PAD_L, H - PAD_B, W - PAD_R, H - PAD_B,
+                      fill="#AAB7B8", width=2)
+
+        def to_coords(data, color, width=2):
+            pts = []
+            for i, val in enumerate(data):
+                x = PAD_L + int(i / (n - 1) * chart_w)
+                y = PAD_T + chart_h - int(val / max_val * chart_h)
+                pts.extend([x, y])
+            if len(pts) >= 4:
+                c.create_line(*pts, fill=color, width=width,
+                              smooth=True)
+
+        to_coords(self.tries_data, TRY_BG,  width=2)
+        to_coords(self.backs_data, BACK_BG, width=2)
+
+        # Axis labels
+        lf = tkfont.Font(family="Verdana", size=8)
+        c.create_text(PAD_L + chart_w // 2, H - 6,
+                      text="Step Number", fill="#AAB7B8", font=lf)
+        # Rotated Y label via a window trick — just use a short text
+        c.create_text(10, PAD_T + chart_h // 2,
+                      text="Count", fill="#AAB7B8",
+                      font=lf, angle=90)
+
+        # Final values annotation
+        ann_f = tkfont.Font(family="Verdana", size=8, weight="bold")
+        c.create_text(W - PAD_R - 4,
+                      PAD_T + chart_h - int(self.tries_data[-1] / max_val * chart_h) - 10,
+                      text=f"{self.tries_data[-1]:,}",
+                      fill=TRY_BG, anchor="e", font=ann_f)
+        c.create_text(W - PAD_R - 4,
+                      PAD_T + chart_h - int(self.backs_data[-1] / max_val * chart_h) + 10,
+                      text=f"{self.backs_data[-1]:,}",
+                      fill=BACK_BG, anchor="e", font=ann_f)
+
+
 
 class Launcher:
     def __init__(self, root):
@@ -951,6 +1106,7 @@ if __name__ == "__main__":
     root = tk.Tk()
     Launcher(root)
     root.mainloop()
+
 
 
 
