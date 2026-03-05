@@ -368,6 +368,8 @@ def parallel_solve_zone(board, size, goal_t, solve_positions, locked=None,
                      max_nodes, fill_only, working_zone)
 
 
+
+
 # GBFS FULL-BOARD 
 
 def gbfs_full(board, goal_t, size, locked=None, max_nodes=500000):
@@ -494,7 +496,48 @@ def move_tile_into_zone(board, size, tile_value, target_zone, locked=None):
 
     return None
 
+# ─────────────────────────────────────────────────────────────
+# RUNTIME GRAPH
+# ─────────────────────────────────────────────────────────────
+def show_runtime_graph(step_times):
+    """Show a line chart of solve time (ms) per step after puzzle completion."""
+    labels = [f"Step {i}" for i in range(len(step_times))]
+    values = [t * 1000 for t in step_times]          # seconds → ms
 
+    fig, ax = plt.subplots(figsize=(8, 4))
+    fig.patch.set_facecolor("#EAF6F6")
+    ax.set_facecolor("#f0fbf8")
+
+    x = list(range(len(labels)))
+
+    ax.plot(x, values, color="#2563eb", linewidth=2.5,
+            marker="o", markersize=8, markerfacecolor="#10b981",
+            markeredgecolor="white", markeredgewidth=1.5)
+    ax.fill_between(x, values, alpha=0.12, color="#2563eb")
+
+    for xi, yi in zip(x, values):
+        ax.annotate(f"{yi:.1f} ms", (xi, yi),
+                    textcoords="offset points", xytext=(0, 10),
+                    ha="center", fontsize=9, color="#1e3a5f")
+
+    avg = sum(values) / len(values)
+    ax.axhline(avg, color="#f59e0b", linestyle="--",
+               linewidth=1.3, label=f"Avg: {avg:.1f} ms")
+
+    ax.set_title("D&C Solver — Compute Time per Step",
+                 fontsize=13, fontweight="bold", color="#1e3a5f", pad=12)
+    ax.set_xlabel("Step", fontsize=11, color="#374151")
+    ax.set_ylabel("Time (ms)", fontsize=11, color="#374151")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=10)
+    ax.tick_params(colors="#374151")
+    ax.grid(color="#d1fae5", linestyle="--", linewidth=0.8)
+    for spine in ax.spines.values():
+        spine.set_edgecolor("#A9DFBF")
+
+    ax.legend(facecolor="#EAF6F6", labelcolor="#374151", fontsize=10)
+    plt.tight_layout()
+    plt.show()
 
 # GAME CLASS
 
@@ -1100,3 +1143,4 @@ if __name__ == "__main__":
     root = tk.Tk()
     PuzzleGame(root)
     root.mainloop()
+
