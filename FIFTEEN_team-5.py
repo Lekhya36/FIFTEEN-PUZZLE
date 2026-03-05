@@ -62,58 +62,43 @@ def manhattan(board, goal, size):
         gr, gc = goal_pos[v]
         dist += abs(r-gr) + abs(c-gc)
     return dist
+# ─── RUNTIME GRAPH ─────────────────────────────────────────────────────────────
 
-# ─────────────────────────────────────────────
-# IDA* SOLVER 
+def show_runtime_graph(cpu_times, size):
+    if not cpu_times:
+        return
 
-def ida_star(start, goal, size):
+    fig, ax = plt.subplots(figsize=(9, 4))
+    fig.patch.set_facecolor("#0f172a")
+    ax.set_facecolor("#111827")
 
-    start = tuple(start)
-    goal = tuple(goal)
+    turns = list(range(1, len(cpu_times) + 1))
 
-    threshold = manhattan(start, goal, size)
-    path = [start]
+    ax.plot(turns, cpu_times,
+            color="#00f5ff", linewidth=2, marker="o",
+            markersize=4, markerfacecolor="#00ffae")
+    ax.fill_between(turns, cpu_times, alpha=0.15, color="#00f5ff")
 
-    def search(g, threshold):
-        node = path[-1]
-        f = g + manhattan(node, goal, size)
+    ax.set_title(f"Greedy Solve Time per CPU Turn  ({size}×{size} board)",
+                 color="white", fontsize=13, pad=12)
+    ax.set_xlabel("CPU Turn", color="#94a3b8", fontsize=11)
+    ax.set_ylabel("Time (ms)", color="#94a3b8", fontsize=11)
 
-        if f > threshold:
-            return f
+    ax.tick_params(colors="#94a3b8")
+    for spine in ax.spines.values():
+        spine.set_edgecolor("#1f2937")
 
-        if node == goal:
-            return "FOUND"
+    ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+    ax.grid(color="#1f2937", linestyle="--", linewidth=0.8)
 
-        minimum = float("inf")
+    avg = sum(cpu_times) / len(cpu_times)
+    ax.axhline(avg, color="#f59e0b", linestyle="--",
+               linewidth=1.2, label=f"Avg: {avg:.2f} ms")
+    ax.legend(facecolor="#1f2937", labelcolor="white", fontsize=10)
 
-        for neighbor in get_neighbors(node, size):
+    plt.tight_layout()
+    plt.show()
 
-            if neighbor not in path:
-
-                path.append(neighbor)
-
-                temp = search(g + 1, threshold)
-
-                if temp == "FOUND":
-                    return "FOUND"
-
-                if temp < minimum:
-                    minimum = temp
-
-                path.pop()
-
-        return minimum
-
-    while True:
-        temp = search(0, threshold)
-
-        if temp == "FOUND":
-            return path
-
-        if temp == float("inf"):
-            return None
-
-        threshold = temp
 
 # ─────────────────────────────────────────────
 # GAME CLASS
@@ -355,3 +340,4 @@ if __name__ == "__main__":
     root = tk.Tk()
     PuzzleGame(root)
     root.mainloop()
+
