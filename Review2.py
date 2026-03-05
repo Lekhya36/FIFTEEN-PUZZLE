@@ -1,24 +1,39 @@
+import random, sys, time, threading, heapq
 import tkinter as tk
-from tkinter import messagebox
-import heapq
-from collections import deque
-import concurrent.futures
+from tkinter import font as tkfont
 
+sys.setrecursionlimit(500000)
 
-# COLORS
-
-BG_COLOR       = "#EAF6F6"
-FRAME_COLOR    = "#A9DFBF"
-TILE_COLOR     = "#FFF4B2"
-CORRECT_COLOR  = "#A3E4D7"
-EMPTY_COLOR    = "#82C0A6"
-BTN_COLOR      = "#58D68D"
-HINT_COLOR     = "#F39C12"
-CPU_MOVE_COLOR = "#AED6F1"
-BUFFER_COLOR   = "#D7BDE2"
-QUAD_COLORS    = ["#FADBD8", "#D6EAF8", "#D5F5E3", "#FDEBD0"]
-
-
+# COLOURS
+BG_MAIN         = "#F5F7FA"
+BG_PANEL        = "#FFFFFF"
+BG_CARD         = "#F0F4F8"
+HDR_BG          = "#34495E"
+TILE_BG         = "#AED6F1"
+TILE_FG         = "#000000"
+TILE_CORRECT    = "#A9DFBF"
+TILE_CORRECT_FG = "#000000"
+EMPTY_BG        = "#D5D8DC"
+TRY_BG          = "#8E44AD"
+TRY_FG          = "#FFFFFF"
+BACK_BG         = "#E74C3C"
+BACK_FG         = "#FFFFFF"
+HINT_BG         = "#F39C12"
+HINT_FG         = "#FFFFFF"
+DONE_BG         = "#27AE60"
+DONE_FG         = "#FFFFFF"
+TEXT_DARK       = "#2C3E50"
+TEXT_MID        = "#566573"
+TEXT_DIM        = "#AAB7B8"
+BTN_START       = "#27AE60"
+BTN_RESET       = "#C0392B"
+BTN_BLUE        = "#2980B9"
+BTN_PURPLE      = "#7D3C98"
+BTN_GREY        = "#7F8C8D"
+BTN_TEAL        = "#16A085"
+BTN_ORANGE      = "#E67E22"
+P1_COLOR        = "#2980B9"
+P2_COLOR        = "#E67E22"
 # BOARD UTILITIES
 
 def create_goal(size):
@@ -1028,6 +1043,7 @@ if __name__ == "__main__":
     root = tk.Tk()
     Launcher(root)
     root.mainloop()
+
 
 
 
