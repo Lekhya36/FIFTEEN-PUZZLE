@@ -1,46 +1,49 @@
-import random, sys, time, threading, heapq
+import random
+import sys
 import tkinter as tk
 from tkinter import font as tkfont
+import time
 
-sys.setrecursionlimit(500000)
+sys.setrecursionlimit(999999)
 
-# COLOURS
-BG_MAIN         = "#F5F7FA"
-BG_PANEL        = "#FFFFFF"
-BG_CARD         = "#F0F4F8"
-HDR_BG          = "#34495E"
-TILE_BG         = "#AED6F1"
-TILE_FG         = "#000000"
-TILE_CORRECT    = "#A9DFBF"
+#  COLOURS 
+BG_MAIN      = "#F5F7FA"       
+BG_PANEL     = "#FFFFFF"     
+BG_CARD      = "#F0F4F8"       
+HDR_BG       = "#34495E"     
+HDR_FG       = "#FFFFFF"
+# Tile colours 
+TILE_BG      = "#AED6F1"       
+TILE_FG      = "#000000"      
+TILE_CORRECT = "#A9DFBF"       
 TILE_CORRECT_FG = "#000000"
-EMPTY_BG        = "#D5D8DC"
-TRY_BG          = "#8E44AD"
-TRY_FG          = "#FFFFFF"
-BACK_BG         = "#E74C3C"
-BACK_FG         = "#FFFFFF"
-HINT_BG         = "#F39C12"
-HINT_FG         = "#FFFFFF"
-DONE_BG         = "#27AE60"
-DONE_FG         = "#FFFFFF"
-TEXT_DARK       = "#2C3E50"
-TEXT_MID        = "#566573"
-TEXT_DIM        = "#AAB7B8"
-BTN_START       = "#27AE60"
-BTN_RESET       = "#C0392B"
-BTN_BLUE        = "#2980B9"
-BTN_PURPLE      = "#7D3C98"
-BTN_GREY        = "#7F8C8D"
-BTN_TEAL        = "#16A085"
-BTN_ORANGE      = "#E67E22"
-P1_COLOR        = "#2980B9"
-P2_COLOR        = "#E67E22"
+EMPTY_BG     = "#D5D8DC"       
 
-# ── BOARD HELPERS ───
+# Backtracking 
+TRY_BG       = "#A569BD"      
+TRY_FG       = "#FFFFFF"
+BACK_BG      = "#F11D06"      
+BACK_FG      = "#FFFFFF"
+DONE_BG      = "#27AE60"     
+DONE_FG      = "#FFFFFF"
+# Text colours
+TEXT_DARK    = "#2C3E50"
+TEXT_MID     = "#566573"
+TEXT_DIM     = "#AAB7B8"
+# Button colours 
+BTN_START    = "#27AE60"      
+BTN_RESET    = "#C0392B"       
+BTN_BLUE     = "#2980B9"      
+BTN_PURPLE   = "#7D3C98"       
+BTN_GREY     = "#7F8C8D"     
+#  BOARD HELPERS
 def make_goal(size):
-    return tuple(range(1, size * size)) + (0,)
+    return list(range(1, size * size)) + [0]
 
 def get_moves(board, size):
-    e = board.index(0); r, c = divmod(e, size); out = []
+    e = board.index(0)
+    r, c = divmod(e, size)
+    out = []
     for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
         nr, nc = r+dr, c+dc
         if 0 <= nr < size and 0 <= nc < size:
@@ -48,23 +51,15 @@ def get_moves(board, size):
     return out
 
 def apply_move(board, idx):
-    b = list(board); e = b.index(0); b[e], b[idx] = b[idx], b[e]; return tuple(b)
-
-def shuffle_board(size):
-    steps = 40 if size == 4 else 30
-    b = list(make_goal(size)); prev = None
-    for _ in range(steps):
-        moves = get_moves(b, size)
-        if prev in moves and len(moves) > 1: moves.remove(prev)
-        chosen = random.choice(moves); prev = b.index(0)
-        b = list(apply_move(tuple(b), chosen))
+    b = list(board); e = b.index(0)
+    b[e], b[idx] = b[idx], b[e]
     return tuple(b)
 
-def moved_tile(prev_b, cur_b):
-    for i in range(len(cur_b)):
-        if cur_b[i] != prev_b[i] and cur_b[i] != 0: return i
-    return None
-
+def shuffle_board(size, steps=12):
+    b = make_goal(size)
+    for _ in range(steps):
+        b = list(apply_move(tuple(b), random.choice(get_moves(b, size))))
+    return b
 
 class PureBacktrackSolver:
     def __init__(self, start, size, goal):
@@ -860,3 +855,4 @@ if __name__ == "__main__":
     root = tk.Tk()
     Launcher(root)
     root.mainloop()
+
