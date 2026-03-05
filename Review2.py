@@ -802,159 +802,61 @@ class PuzzleGame:
             self._play()
 
 
-    def _do_cpu_step(self):
-        if self.game_over or self.computing: return
-        if self.trace_idx >= len(self.trace): self._finish_cpu_turn(); return
+    def _popup_solved(self, manual=False):
+        self.game_over = True
 
-        action, board_t, hi = self.trace[self.trace_idx]
-        self.trace_idx += 1; self.cpu_steps_done += 1
-        self.board = list(board_t); self._hi = hi; self._hi_action = action
-
-        self.cpu_steps_lbl.config(text=str(self.cpu_steps_done))
-        self.lbl_steps.config(text=str(self.cpu_steps_done))
-        backs = sum(1 for e in self.trace[:self.trace_idx] if e[0] == "back")
-        self.lbl_backs.config(text=str(backs))
-        self.step_bar.config(text=f"Steps: {self.trace_idx} / {self._total_steps}")
-        self._draw(hi=hi, action=action)
-
-        tile_val = board_t[hi] if (hi is not None and hi < len(board_t)) else "?"
-        r = hi//self.SIZE+1 if hi is not None else "?"
-        c = hi% self.SIZE+1 if hi is not None else "?"
-
-        if action == "try":
-            self.action_lbl.config(text=f"CPU Trying\nTile [{tile_val}] at ({r},{c})", fg=TRY_BG)
-            self.status.config(
-                text=f"  CPU TRYING  →  Tile [{tile_val}] at ({r},{c})"
-                     f"   |  Step {self.trace_idx}/{self._total_steps}", fg="#FFFFFF")
-        elif action == "back":
-            self.action_lbl.config(text=f"🔴 BACKTRACK!\nTile [{tile_val}] ({r},{c})", fg=BACK_BG)
-            self.status.config(
-                text=f"  🔴 BACKTRACKING!  Tile [{tile_val}] at ({r},{c})"
-                     f" — dead end!  |  Step {self.trace_idx}/{self._total_steps}", fg=BACK_BG)
-        elif action == "done":
-            self.action_lbl.config(text="✅ CPU SOLVED!", fg=DONE_BG)
-            self.status.config(text="  ✅ CPU solved the board!", fg=DONE_BG)
-            self._draw(hi=hi, action=action)
-            self.root.after(800, lambda: self._end_game(player_won=False)); return
-
-        if tuple(self.board) == self.GOAL:
-            self.root.after(400, lambda: self._end_game(player_won=False)); return
-
-        delay = max(60, 840-self.sv.get())
-        if self.auto_mode and not self.auto_paused:
-            self.root.after(delay, self._do_cpu_step)
-        else:
-            self.root.after(delay, self._finish_cpu_turn)
-
-    def _finish_cpu_turn(self):
-        if self.game_over: return
-        self.current_turn = "player"; self._set_turn_ui()
-        self._draw(hi=self._hi, action=self._hi_action)
-
-    def _toggle_auto(self):
-        if not self.is_started or self.computing:
-            self.auto_mode = True
-            if not self.is_started: self._start_game()
-            self.btn_auto.config(text="⏸  PAUSE Auto Play"); return
-        if not self.auto_mode:
-            self.auto_mode = True; self.auto_paused = False
-            self.current_turn = "cpu"
-            self.btn_auto.config(text="⏸  PAUSE Auto Play")
-            self._set_turn_ui(); self._do_cpu_step()
-        else:
-            self.auto_paused = not self.auto_paused
-            if self.auto_paused:
-                self.btn_auto.config(text="▶  RESUME Auto Play")
-                self.status.config(text="  Auto Play paused. Press RESUME.", fg="#FFFFFF")
-            else:
-                self.btn_auto.config(text="⏸  PAUSE Auto Play"); self._do_cpu_step()
-
-    def _open_graph(self):
-        if not self.is_started:
-            self.status.config(
-                text="  ⚠  Press START first — graph needs puzzle data!", fg=HINT_BG)
-            return
-        if self.computing:
-            self.status.config(
-                text="  ⏳  Still computing — wait a moment then try again.", fg=HINT_BG)
-            return
-        RuntimeGraphWindow(
-            self.root, self.trace, self._solution,
-            self.SIZE, self._solve_ms, self.p1_moves, self.cpu_steps_done
-        )
-
-    def _end_game(self, player_won=False):
-        if self.game_over: return
-        self.game_over = True; self.auto_mode = False
-        winner = "🏆  YOU WIN!" if player_won else "🤖  CPU solved it!"
-        wcolor = P1_COLOR if player_won else P2_COLOR
-        backs  = sum(1 for e in self.trace[:self.trace_idx] if e[0] == "back")
-        self.status.config(
-            text=f"{winner}   Your moves: {self.p1_moves}   "
-                 f"CPU steps: {self.cpu_steps_done}   Backtracks: {backs}",
-            fg=wcolor)
-        self.root.after(300, lambda: self._popup(winner, wcolor, backs))
-
-    def _popup(self, winner, wcolor, backs):
         pop = tk.Toplevel(self.root)
-        pop.title("Game Complete!")
-        pop.configure(bg=BG_PANEL); pop.resizable(False, False)
-        pop.transient(self.root); pop.grab_set()
-        pw, ph = 360, 240
-        self.root.update_idletasks()
-        rx = self.root.winfo_x()+(self.root.winfo_width() -pw)//2
-        ry = self.root.winfo_y()+(self.root.winfo_height()-ph)//2
+        pop.title("🏆 Puzzle Solved!")
+        pop.configure(bg=BG_PANEL)
+        pop.resizable(False, False)
+        pop.transient(self.root)
+        pop.grab_set()
+
+        ph = 260 if not manual else 220
+        pw = 400
+        rx = self.root.winfo_x() + (self.root.winfo_width()  - pw) // 2
+        ry = self.root.winfo_y() + (self.root.winfo_height() - ph) // 2
         pop.geometry(f"{pw}x{ph}+{rx}+{ry}")
 
-        # header
-        hdr = tk.Frame(pop, bg=wcolor, pady=22); hdr.pack(fill="x")
-        tk.Label(hdr, text="GAME COMPLETE!",
-                 font=tkfont.Font(family="Georgia", size=22, weight="bold"),
-                 bg=wcolor, fg="white").pack()
+        hdr = tk.Frame(pop, bg=DONE_BG, pady=14); hdr.pack(fill="x")
+        tk.Label(hdr, text="🏆  GAME SOLVED!",
+                 font=tkfont.Font(family="Georgia", size=18, weight="bold"),
+                 bg=DONE_BG, fg="white").pack()
 
-        # only 2 stats: Your Moves + CPU Backtracks
-        body = tk.Frame(pop, bg=BG_PANEL, pady=16); body.pack(fill="x", padx=32)
-        lf = tkfont.Font(family="Verdana", size=10)
-        vf = tkfont.Font(family="Verdana", size=16, weight="bold")
+        body = tk.Frame(pop, bg=BG_PANEL, pady=14); body.pack(fill="x", padx=30)
 
-        for label, val, color in [
-            ("Your Moves",     str(self.p1_moves), P1_COLOR),
-            ("CPU Backtracks", f"{backs:,}",        BTN_RESET),
-        ]:
-            row = tk.Frame(body, bg=BG_CARD, padx=18, pady=12)
-            row.pack(fill="x", pady=4)
-            tk.Label(row, text=label, font=lf,
-                     bg=BG_CARD, fg=TEXT_MID, anchor="w").pack(side="left")
-            tk.Label(row, text=val, font=vf,
-                     bg=BG_CARD, fg=color, anchor="e").pack(side="right")
+        if not manual and self.last_solver:
+            for label, val, color in [
+                ("Steps Tried",  f"{self._total_steps:,}",  BTN_PURPLE),
+                ("Backtracks",   f"{self._total_backs:,}",  BTN_RESET),
+            ]:
+                row = tk.Frame(body, bg=BG_CARD, padx=16, pady=10)
+                row.pack(fill="x", pady=4)
+                tk.Label(row, text=label,
+                         font=tkfont.Font(family="Verdana", size=9),
+                         bg=BG_CARD, fg=TEXT_MID, anchor="w").pack(side="left")
+                tk.Label(row, text=val,
+                         font=tkfont.Font(family="Verdana", size=14, weight="bold"),
+                         bg=BG_CARD, fg=color, anchor="e").pack(side="right")
+        else:
+            tk.Label(body, text="You solved it manually!\nGreat job! 🎉",
+                     font=tkfont.Font(family="Verdana", size=11),
+                     bg=BG_PANEL, fg=TEXT_DARK, justify="center").pack(pady=6)
 
-        # buttons
         bf = tkfont.Font(family="Verdana", size=10, weight="bold")
-        br = tk.Frame(pop, bg=BG_PANEL, pady=10); br.pack()
-        tk.Button(br, text="▶  Play Again", font=bf,
+        btn_row = tk.Frame(pop, bg=BG_PANEL, pady=10); btn_row.pack()
+        tk.Button(btn_row, text="▶  Play Again", font=bf,
                   bg=BTN_START, fg="white", relief="flat",
-                  padx=18, pady=8, cursor="hand2",
+                  padx=20, pady=8, cursor="hand2",
                   command=lambda: [pop.destroy(), self._reset()]
-                  ).pack(side="left", padx=8)
-        tk.Button(br, text="✕  Close", font=bf,
+                  ).pack(side="left", padx=10)
+        tk.Button(btn_row, text="✕  Close", font=bf,
                   bg=BTN_GREY, fg="white", relief="flat",
-                  padx=18, pady=8, cursor="hand2",
+                  padx=20, pady=8, cursor="hand2",
                   command=pop.destroy
-                  ).pack(side="left", padx=8)
-
+                  ).pack(side="left", padx=10)
 
 if __name__ == "__main__":
     root = tk.Tk()
     Launcher(root)
     root.mainloop()
-
-
-
-
-
-
-
-
-
-
-
