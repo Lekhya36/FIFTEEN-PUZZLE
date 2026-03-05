@@ -542,605 +542,492 @@ def show_runtime_graph(step_times):
 # GAME CLASS
 
 class PuzzleGame:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Sliding Puzzle — Quadrant D&C Solver")
-        self.root.configure(bg=BG_COLOR)
+    def __init__(self, root, size):
+        self.root = root; self.SIZE = size; self.GOAL = make_goal(size)
+        lbl = "15" if size == 4 else "25"
+        root.title(f"{lbl} Puzzle — Player vs CPU")
+        root.configure(bg=BG_MAIN); root.resizable(True, True)
+        root.geometry("1040x760" if size == 4 else "1080x780")
 
-        self.solution_path = []
-        self.solution_step = 0
-        self.hint_index    = None
-        self.cpu_animating = False
-        self.board_loaded  = False
+        self.board          = list(self.GOAL)
+        self.is_started     = False
+        self.game_over      = False
+        self.computing      = False
+        self.current_turn   = "player"
+        self.auto_mode      = False
+        self.auto_paused    = False
+        self.trace          = []
+        self.trace_idx      = 0
+        self._total_steps   = 0
+        self._total_backs   = 0
+        self.p1_moves       = 0
+        self.cpu_steps_done = 0
+        self._hi            = None
+        self._hi_action     = None
+        self._hint_idx      = None
+        self._solution      = []
+        self._solve_ms      = 0.0
+        self.start_time     = None
 
-        self.size = 5
-        self.goal = create_goal(self.size)
-        self.build_ui()
-        self.show_input_grid()
+        self._fonts(); self._build_ui(); self._draw(); self._clock()
 
-    def build_ui(self):
-        tk.Label(self.root, text="SLIDING PUZZLE — D&C Solver",
-                 font=("Arial", 20, "bold"), bg=BG_COLOR).pack(pady=(12,2))
+    def _fonts(self):
+        sz = 24 if self.SIZE == 4 else 18
+        self.F_HDR    = tkfont.Font(family="Georgia", size=15, weight="bold")
+        self.F_SUB    = tkfont.Font(family="Verdana", size=8)
+        self.F_TILE   = tkfont.Font(family="Georgia", size=sz, weight="bold")
+        self.F_BTN    = tkfont.Font(family="Verdana", size=9,  weight="bold")
+        self.F_STAT_V = tkfont.Font(family="Verdana", size=16, weight="bold")
+        self.F_STAT_L = tkfont.Font(family="Verdana", size=8)
+        self.F_SEC    = tkfont.Font(family="Verdana", size=8,  weight="bold")
+        self.F_STATUS = tkfont.Font(family="Verdana", size=10, weight="bold")
+        self.F_ACT    = tkfont.Font(family="Verdana", size=10, weight="bold")
+        self.F_TURN   = tkfont.Font(family="Georgia", size=13, weight="bold")
 
-        self.status_lbl = tk.Label(self.root, font=("Arial", 12),
-                                   bg=BG_COLOR, fg="#2C3E50")
-        self.status_lbl.pack(pady=(0,6))
+    def _build_ui(self):
+        lbl = "15 PUZZLE" if self.SIZE == 4 else "25 PUZZLE"
 
-        self.board_frame = tk.Frame(self.root, bg=FRAME_COLOR, padx=10, pady=10)
-        self.board_frame.pack(pady=4)
+        top = tk.Frame(self.root, bg=HDR_BG, pady=10); top.pack(fill="x")
+        tk.Label(top, text=f"{lbl}  —  PLAYER vs CPU",
+                 font=self.F_HDR, bg=HDR_BG, fg="#FFFFFF").pack(side="left", padx=18)
+        tk.Label(top, text="Shared board  ·  One move each",
+                 font=self.F_SUB, bg=HDR_BG, fg="#AEB6BF").pack(side="right", padx=18)
 
+        main = tk.Frame(self.root, bg=BG_MAIN)
+        main.pack(fill="both", expand=True, padx=14, pady=12)
+        main.columnconfigure(0, weight=1); main.columnconfigure(1, weight=0)
+        main.rowconfigure(0, weight=1)
+
+        left = tk.Frame(main, bg=BG_MAIN)
+        left.grid(row=0, column=0, sticky="nsew")
+        left.rowconfigure(0, weight=1); left.columnconfigure(0, weight=1)
+        wrap = tk.Frame(left, bg=BG_MAIN)
+        wrap.place(relx=0.5, rely=0.5, anchor="center")
+
+        self.turn_banner = tk.Label(wrap, text="", font=self.F_TURN,
+                                     bg=P1_COLOR, fg="white", pady=10, padx=20)
+        self.turn_banner.pack(fill="x", pady=(0,8))
+
+        outer = tk.Frame(wrap, bg=HDR_BG, padx=5, pady=5); outer.pack()
+        self.grid_frame = tk.Frame(outer, bg=HDR_BG); self.grid_frame.pack()
+        tw = 5 if self.SIZE == 4 else 4
         self.buttons = []
-        for i in range(self.size * self.size):
-            b = tk.Button(self.board_frame, width=5, height=2,
-                          font=("Arial", 14, "bold"),
-                          relief="raised", bd=3,
-                          state="disabled")
-            b.grid(row=i//self.size, column=i%self.size, padx=4, pady=4)
+        for i in range(self.SIZE * self.SIZE):
+            b = tk.Button(self.grid_frame, text="", font=self.F_TILE,
+                          relief="flat", cursor="hand2",
+                          width=tw, height=2, bd=0,
+                          command=lambda i=i: self._click(i))
+            b.grid(row=i//self.SIZE, column=i%self.SIZE, padx=4, pady=4)
             self.buttons.append(b)
 
-        step_frame = tk.Frame(self.root, bg=BG_COLOR)
-        step_frame.pack(pady=(4, 4))
+        score_row = tk.Frame(wrap, bg=BG_MAIN); score_row.pack(fill="x", pady=(8,0))
+        tk.Label(score_row, text="Your moves:", font=self.F_STAT_L,
+                 bg=BG_MAIN, fg=TEXT_MID).pack(side="left")
+        self.p1_moves_lbl = tk.Label(score_row, text="0", font=self.F_BTN,
+                                      bg=BG_MAIN, fg=P1_COLOR)
+        self.p1_moves_lbl.pack(side="left", padx=(4,24))
+        tk.Label(score_row, text="CPU steps:", font=self.F_STAT_L,
+                 bg=BG_MAIN, fg=TEXT_MID).pack(side="left")
+        self.cpu_steps_lbl = tk.Label(score_row, text="0", font=self.F_BTN,
+                                       bg=BG_MAIN, fg=P2_COLOR)
+        self.cpu_steps_lbl.pack(side="left", padx=(4,0))
 
-        tc = ("Arial", 10, "bold")
-        self.btn_step = []
-        configs = [
-            ("Step 0: Empty→Buffer",  "#F8C471", self.do_step0),
-            ("Step 1: Fill Quads",    "#A9DFBF", self.do_step1),
-            ("Step 2: Solve Q0-Q2",   "#AED6F1", self.do_step2),
-            ("Step 3: Buffer + Q4",   "#F1948A", self.do_step3),
-        ]
-        for col, (txt, bg, cmd) in enumerate(configs):
-            b = tk.Button(step_frame, text=txt, bg=bg, font=tc,
-                          state="disabled", command=cmd)
-            b.grid(row=0, column=col, padx=4, pady=4)
-            self.btn_step.append(b)
+        right = tk.Frame(main, bg=BG_PANEL, width=244,
+                         highlightbackground="#D5D8DC", highlightthickness=1)
+        right.grid(row=0, column=1, sticky="nsew", padx=(14,0))
+        right.pack_propagate(False)
+        self._build_panel(right)
 
-        ctrl_frame = tk.Frame(self.root, bg=BG_COLOR)
-        ctrl_frame.pack(pady=(2, 4))
+        bot = tk.Frame(self.root, bg=HDR_BG); bot.pack(fill="x", side="bottom")
+        self.step_bar = tk.Label(bot, text="Steps: 0 / 0",
+                                 font=self.F_STAT_L, bg=HDR_BG, fg="#AEB6BF",
+                                 padx=12, pady=5)
+        self.step_bar.pack(side="left")
+        self.status = tk.Label(bot, text="Press  START  to begin!",
+                               font=self.F_STATUS, bg=HDR_BG, fg="#FFFFFF",
+                               pady=7, padx=14, anchor="w")
+        self.status.pack(side="left", fill="x", expand=True)
 
-        self.btn_input = tk.Button(ctrl_frame, text="✏️  Enter Board",
-                                   bg=BTN_COLOR, font=("Arial", 11, "bold"),
-                                   width=14, command=self.show_input_grid)
-        self.btn_input.pack()
+    def _build_panel(self, p):
+        def sec(t):
+            tk.Label(p, text=t, font=self.F_SEC,
+                     bg=BG_PANEL, fg=TEXT_MID).pack(pady=(10,3))
+        def div():
+            tk.Frame(p, bg="#E0E7EF", height=1).pack(fill="x", padx=12, pady=3)
+        def mkbtn(t, bg, cmd):
+            b = tk.Button(p, text=t, font=self.F_BTN, bg=bg, fg="white",
+                          relief="flat", pady=8, cursor="hand2",
+                          activebackground=bg, command=cmd)
+            b.pack(fill="x", padx=12, pady=2); return b
 
-        self.moves_lbl = tk.Label(self.root, font=("Arial", 10),
-                                  bg=BG_COLOR, fg="#555")
-        self.moves_lbl.pack(pady=(0,4))
+        sec("HOW TO PLAY")
+        tk.Label(p, text="1. YOU move one tile\n2. CPU makes ONE step\n3. Alternate until solved!",
+                 font=self.F_STAT_L, bg=BG_PANEL, fg=TEXT_DARK,
+                 justify="left").pack(padx=16, pady=2, anchor="w")
 
-        legend = tk.Frame(self.root, bg=BG_COLOR)
-        legend.pack(pady=(0,8))
-        for text, color in [
-            ("Buffer", BUFFER_COLOR),
-            ("Q1 TL", QUAD_COLORS[0]),
-            ("Q2 TR", QUAD_COLORS[1]),
-            ("Q3 BL", QUAD_COLORS[2]),
-            ("Q4 BR", QUAD_COLORS[3]),
-        ]:
-            tk.Label(legend, text=f"  {text}  ", bg=color,
-                     font=("Arial", 9, "bold"),
-                     relief="ridge").pack(side="left", padx=3)
+        div(); sec("CURRENT TURN")
+        self.turn_card = tk.Label(p, text="--", font=self.F_TURN,
+                                   bg=BG_CARD, fg=TEXT_DARK, pady=9)
+        self.turn_card.pack(fill="x", padx=12)
 
-    def show_input_grid(self):
-        if self.cpu_animating:
-            return
+        div(); sec("CPU STATS")
+        sc = tk.Frame(p, bg=BG_PANEL); sc.pack(fill="x", padx=12)
+        self.lbl_backs = self._srow(sc, "Backtracks:", "--")
+        self.lbl_steps = self._srow(sc, "CPU steps:",  "--")
 
-        win = tk.Toplevel(self.root)
-        win.title("Enter Board")
-        win.configure(bg=BG_COLOR)
-        win.grab_set()
+        div(); sec("TIME")
+        tc = tk.Frame(p, bg=BG_CARD, padx=10, pady=6); tc.pack(fill="x", padx=12)
+        self.t_lbl = tk.Label(tc, text="00:00", font=self.F_STAT_V,
+                              bg=BG_CARD, fg=BTN_BLUE)
+        self.t_lbl.pack()
 
-        N = self.size
-        tk.Label(win, text=f"Enter numbers 0–{N*N-1}\n(0 = empty tile)",
-                 font=("Arial", 12, "bold"), bg=BG_COLOR).grid(
-                     row=0, column=0, columnspan=N, pady=(12,6))
+        div(); sec("LEGEND")
+        leg = tk.Frame(p, bg=BG_PANEL); leg.pack(fill="x", padx=12)
+        for txt, color in [("CPU Trying",     TRY_BG),
+                           ("Backtrack tile", BACK_BG),
+                           ("Hint tile",      HINT_BG),
+                           ("Correct pos.",   TILE_CORRECT)]:
+            row = tk.Frame(leg, bg=BG_PANEL, pady=2); row.pack(fill="x")
+            dot = tk.Frame(row, bg=color, width=13, height=13)
+            dot.pack(side="left", padx=(0,6)); dot.pack_propagate(False)
+            tk.Label(row, text=txt, font=self.F_STAT_L,
+                     bg=BG_PANEL, fg=TEXT_DARK).pack(side="left")
 
-        entries = []
-        for r in range(N):
-            row_entries = []
-            for c in range(N):
-                e = tk.Entry(win, width=4, font=("Arial", 14, "bold"),
-                             justify="center", relief="solid")
-                e.grid(row=r+1, column=c, padx=4, pady=4)
-                row_entries.append(e)
-            entries.append(row_entries)
+        div(); sec("CURRENT ACTION")
+        self.action_lbl = tk.Label(p, text="--", font=self.F_ACT,
+                                   bg=BG_PANEL, fg=TEXT_DARK,
+                                   wraplength=214, justify="center")
+        self.action_lbl.pack(pady=3, padx=10)
 
-        if self.board_loaded:
-            for r in range(N):
-                for c in range(N):
-                    val = self.board[r*N+c]
-                    entries[r][c].insert(0, str(val))
+        div()
+        mkbtn("▶  START  (New Game)", BTN_START, self._start_game)
+        mkbtn("↺  RESET",             BTN_RESET, self._reset)
 
-        def load():
-            try:
-                vals = []
-                for r in range(N):
-                    for c in range(N):
-                        txt = entries[r][c].get().strip()
-                        vals.append(int(txt))
-            except ValueError:
-                messagebox.showerror("Invalid Input",
-                                     "All cells must contain integers.",
-                                     parent=win)
-                return
+        div()
+        self.btn_hint = tk.Button(p, text="💡  HINT  (show best move)",
+                                   font=self.F_BTN, bg=HINT_BG, fg="white",
+                                   relief="flat", pady=8, cursor="hand2",
+                                   activebackground=HINT_BG, command=self._show_hint)
+        self.btn_hint.pack(fill="x", padx=12, pady=2)
 
-            expected = set(range(N * N))
-            if set(vals) != expected:
-                messagebox.showerror("Invalid Input",
-                                     f"Board must contain exactly the numbers "
-                                     f"0 to {N*N-1} with no duplicates.",
-                                     parent=win)
-                return
+        div()
+        self.btn_auto = tk.Button(p, text="⚡  AUTO PLAY  (CPU solves)",
+                                   font=self.F_BTN, bg=BTN_PURPLE, fg="white",
+                                   relief="flat", pady=8, cursor="hand2",
+                                   activebackground=BTN_PURPLE, command=self._toggle_auto)
+        self.btn_auto.pack(fill="x", padx=12, pady=2)
 
-            if not is_solvable(vals, N):
-                messagebox.showerror("Unsolvable",
-                                     "This board configuration is not solvable.\n"
-                                     "Please enter a solvable arrangement.",
-                                     parent=win)
-                return
+        div()
+        tk.Button(p, text="📈  RUNTIME GRAPH",
+                  font=self.F_BTN, bg=BTN_TEAL, fg="white",
+                  relief="flat", pady=8, cursor="hand2",
+                  activebackground=BTN_TEAL,
+                  command=self._open_graph
+                  ).pack(fill="x", padx=12, pady=2)
 
-            self._load_board(vals)
-            win.destroy()
+        div(); sec("SPEED")
+        spf = tk.Frame(p, bg=BG_PANEL); spf.pack(fill="x", padx=12, pady=(2,8))
+        tk.Label(spf, text="Slow", font=self.F_STAT_L,
+                 bg=BG_PANEL, fg=TEXT_DIM).pack(side="left")
+        self.sv = tk.IntVar(value=550)
+        tk.Scale(spf, from_=20, to=820, orient="horizontal",
+                 variable=self.sv, bg=BG_PANEL, troughcolor=BG_CARD,
+                 highlightthickness=0, showvalue=False
+                 ).pack(side="left", fill="x", expand=True)
+        tk.Label(spf, text="Fast", font=self.F_STAT_L,
+                 bg=BG_PANEL, fg=TEXT_DIM).pack(side="left")
 
-        tk.Button(win, text="Load Board", bg=BTN_COLOR,
-                  font=("Arial", 11, "bold"), command=load).grid(
-                      row=N+1, column=0, columnspan=N, pady=10)
+    def _srow(self, parent, label, val):
+        row = tk.Frame(parent, bg=BG_PANEL, pady=2); row.pack(fill="x")
+        tk.Label(row, text=label, font=self.F_STAT_L,
+                 bg=BG_PANEL, fg=TEXT_MID, anchor="w").pack(side="left")
+        v = tk.Label(row, text=val, font=self.F_BTN,
+                     bg=BG_PANEL, fg=TEXT_DARK, anchor="e")
+        v.pack(side="right"); return v
 
-    def _load_board(self, vals):
-        N = self.size
-        self.board         = list(vals)
-        self.board_loaded  = True
-        self.cpu_animating = False
-        self.solution_path = []
-        self.solution_step = 0
-        self.hint_index    = None
-        self.cpu_moves     = 0
+    def _clock(self):
+        if self.is_started and not self.game_over and self.start_time:
+            m, s = divmod(int(time.time()-self.start_time), 60)
+            self.t_lbl.config(text=f"{m:02d}:{s:02d}")
+        self.root.after(1000, self._clock)
 
-        _, _, buf_cells, quad_cells = get_quadrant_cells(N)
-        self.buffer_idx_set = cells_to_idx(buf_cells, N)
-        self.quad_idx_flat  = [cells_to_idx(q, N) for q in quad_cells]
-
-        for b in self.btn_step:
-            b.config(state="normal")
-
-        self.update_ui()
-        self.set_status("Board loaded! Run steps in order: Step 0 → 1 → 2 → 3")
-
-    def set_status(self, msg):
-        self.status_lbl.config(text=msg)
-
-    def get_zone_color(self, idx):
-        if idx in self.buffer_idx_set:
-            return BUFFER_COLOR
-        for qi, q_set in enumerate(self.quad_idx_flat):
-            if idx in q_set:
-                return QUAD_COLORS[qi]
-        return TILE_COLOR
-
-    def update_ui(self, highlighted=None):
-        if not self.board_loaded:
-            return
+    def _draw(self, hi=None, action=None, hint_idx=None):
+        can_click = (
+            self.current_turn == "player"
+            and self.is_started
+            and not self.game_over
+            and not self.computing
+            and not self.auto_mode
+        )
         for i, v in enumerate(self.board):
             btn = self.buttons[i]
             if v == 0:
-                btn.config(text="", bg=EMPTY_COLOR,
-                           state="disabled", relief="sunken")
-            else:
-                is_correct = (v == self.goal[i])
-                is_cpu_hi  = (i == highlighted)
+                btn.config(text="", state="disabled",
+                           bg=EMPTY_BG, activebackground=EMPTY_BG); continue
+            if not self.is_started:
+                btn.config(text="?", bg="#D6EAF8", fg="#555555",
+                           state="disabled", activebackground="#D6EAF8"); continue
+            bg = TILE_BG; fg = TILE_FG
+            if v == self.GOAL[i]:            bg = TILE_CORRECT; fg = TILE_CORRECT_FG
+            if hint_idx is not None and i == hint_idx: bg = HINT_BG; fg = HINT_FG
+            if hi is not None and i == hi:
+                if   action == "try":  bg = TRY_BG;  fg = TRY_FG
+                elif action == "back": bg = BACK_BG; fg = BACK_FG
+                elif action == "done": bg = DONE_BG; fg = DONE_FG
+            state = "normal" if can_click else "disabled"
+            btn.config(text=str(v), bg=bg, fg=fg, state=state, activebackground=bg)
 
-                if is_cpu_hi:    bg = CPU_MOVE_COLOR
-                elif is_correct: bg = CORRECT_COLOR
-                else:            bg = self.get_zone_color(i)
-
-                btn.config(text=str(v), bg=bg, fg="#2C3E50",
-                           state="disabled", relief="raised")
-
-        self.moves_lbl.config(text=f"CPU moves so far: {self.cpu_moves}")
-
-    def play_segment(self, path, msg):
-        if not path or len(path) <= 1:
-            self.set_status(f"⚠️ {msg} — already done or impossible.")
-            return
-        self.cpu_animating = True
-        for b in self.btn_step:
-            b.config(state="disabled")
-        self.solution_path = [tuple(p) for p in path]
-        self.solution_step = 0
-        self.set_status(f"🤖 {msg}…")
-        self.update_ui()
-        self.root.after(300, self._auto_step)
-
-    def _auto_step(self):
-        if not self.cpu_animating:
-            return
-
-        if self.solution_step + 1 >= len(self.solution_path):
-            self.cpu_animating = False
-            for b in self.btn_step:
-                b.config(state="normal")
-            self.update_ui()
-            solved = self.board == self.goal
-            if solved:
-                self.set_status("✅ Puzzle solved! 🎉")
-                messagebox.showinfo("Solved!", "The puzzle is solved! 🎉")
-            else:
-                self.set_status("✅ Step complete. Continue with next step.")
-            return
-
-        next_state = self.solution_path[self.solution_step + 1]
-        self.solution_step += 1
-        old_board  = self.board[:]
-        self.board = list(next_state)
-        self.cpu_moves += 1
-
-        moved_tile = next(
-            (i for i in range(len(self.board))
-             if self.board[i] != 0 and old_board[i] == 0), None)
-
-        self.update_ui(highlighted=moved_tile)
-        remaining = len(self.solution_path) - 1 - self.solution_step
-        self.set_status(f"🤖 Animating… {remaining} moves left")
-        self.root.after(250, self._auto_step)
-
-    # ─────────────────────────────────────────────────────────
-    # STEP 0
-    # ─────────────────────────────────────────────────────────
-    def do_step0(self):
-        if not self.board_loaded or self.cpu_animating:
-            return
-
-        size    = self.size
-        buf_idx = self.buffer_idx_set
-        current = list(self.board)
-
-        e_now = find_empty(current)
-        if e_now in buf_idx:
-            self.set_status("✅ Step 0: Empty already in buffer — nothing to do.")
-            return
-
-        er, ec = divmod(e_now, size)
-        tgt = min(buf_idx, key=lambda idx:
-                  abs(divmod(idx, size)[0]-er) + abs(divmod(idx, size)[1]-ec))
-        seg = bfs_move_empty(current, size, tgt)
-        self.play_segment(seg, "Step 0: Moving empty to buffer")
-
-    # STEP 1
-    def do_step1(self):
-        if not self.board_loaded or self.cpu_animating:
-            return
-
-        current  = list(self.board)
-        size     = self.size
-        goal_t   = tuple(self.goal)
-        buf_idx  = self.buffer_idx_set
-        quad_idx = self.quad_idx_flat
-
-        full_seg = [tuple(current)]
-
-        def append_s(sg):
-            nonlocal current
-            if sg and len(sg) > 1:
-                for st in sg[1:]:
-                    full_seg.append(tuple(st))
-                current = list(sg[-1])
-
-        hard_locked = set()
-
-        for qi in range(4):
-            q_set   = quad_idx[qi]
-            adj_buf = get_adjacent_buffer_cells(q_set, buf_idx, size)
-
-            e_now = find_empty(current)
-            if e_now not in buf_idx:
-                er, ec = divmod(e_now, size)
-                tgt = min(buf_idx, key=lambda idx:
-                          abs(divmod(idx, size)[0]-er) + abs(divmod(idx, size)[1]-ec))
-                sg = bfs_move_empty(current, size, tgt, locked=hard_locked)
-                if sg:
-                    append_s(sg)
-
-            needed_tiles = {goal_t[p] for p in q_set if goal_t[p] != 0}
-
-            for _attempt in range(len(needed_tiles) + 1):
-                in_q    = {current[p] for p in q_set}
-                missing = needed_tiles - in_q
-                if not missing:
-                    break
-
-                progress = False
-                for tile_val in list(missing):
-                    tile_pos = current.index(tile_val)
-
-                    if tile_pos in adj_buf:
-                        sg = move_tile_into_zone(current, size, tile_val,
-                                                 q_set, locked=hard_locked)
-                        if sg:
-                            append_s(sg)
-                            progress = True
-                            continue
-
-                    if adj_buf:
-                        sg = move_tile_into_zone(current, size, tile_val,
-                                                 adj_buf, locked=hard_locked)
-                        if sg:
-                            append_s(sg)
-
-                    if current.index(tile_val) not in q_set:
-                        sg = move_tile_into_zone(current, size, tile_val,
-                                                 q_set, locked=hard_locked)
-                        if sg:
-                            append_s(sg)
-                            progress = True
-
-                if not progress:
-                    # Parallel: all first-move branches explored simultaneously
-                    sg = parallel_solve_zone(current, size, goal_t, q_set,
-                                             locked=hard_locked,
-                                             max_nodes=400000,
-                                             fill_only=True)
-                    if sg:
-                        append_s(sg)
-
-            e_now = find_empty(current)
-            if e_now not in buf_idx:
-                if qi == 3:
-                    evacuated = False
-                    er, ec = divmod(e_now, size)
-                    direct_adj_buf = [
-                        nr*size+nc
-                        for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]
-                        for nr, nc in [(er+dr, ec+dc)]
-                        if 0 <= nr < size and 0 <= nc < size
-                        and (nr*size+nc) in adj_buf
-                    ]
-                    if direct_adj_buf:
-                        tgt_swap = direct_adj_buf[0]
-                        board_t  = tuple(current)
-                        new_b    = list(swap_board(board_t, e_now, tgt_swap))
-                        full_seg.append(tuple(new_b))
-                        current  = new_b
-                        evacuated = True
-
-                    if not evacuated:
-                        unlocked_for_exit = hard_locked - adj_buf
-                        er, ec = divmod(e_now, size)
-                        tgt = min(buf_idx, key=lambda idx:
-                                  abs(divmod(idx, size)[0]-er) + abs(divmod(idx, size)[1]-ec))
-                        sg = bfs_move_empty(current, size, tgt,
-                                            locked=unlocked_for_exit)
-                        if sg:
-                            append_s(sg)
-                else:
-                    er, ec = divmod(e_now, size)
-                    tgt = min(buf_idx, key=lambda idx:
-                              abs(divmod(idx, size)[0]-er) + abs(divmod(idx, size)[1]-ec))
-                    sg = bfs_move_empty(current, size, tgt, locked=hard_locked)
-                    if sg:
-                        append_s(sg)
-
-        self.play_segment(full_seg, "Step 1: Placing tiles into quadrants")
-
-
-    # STEP 2
-
-    def do_step2(self):
-        if not self.board_loaded or self.cpu_animating:
-            return
-
-        current  = list(self.board)
-        size     = self.size
-        goal_t   = tuple(self.goal)
-        buf_idx  = self.buffer_idx_set
-        quad_idx = self.quad_idx_flat
-
-        full_seg = [tuple(current)]
-
-        def append_s(sg):
-            nonlocal current
-            if sg and len(sg) > 1:
-                for st in sg[1:]:
-                    full_seg.append(tuple(st))
-                current = list(sg[-1])
-
-        hard_locked = set()
-
-        for qi in range(3):
-            q_set        = quad_idx[qi]
-            adj_buf      = get_adjacent_buffer_cells(q_set, buf_idx, size)
-            working_zone = q_set | adj_buf
-
-            if all(current[p] == goal_t[p] for p in q_set):
-                hard_locked |= q_set
-                continue
-
-            needed = {goal_t[p] for p in q_set if goal_t[p] != 0}
-            for tile_val in needed:
-                tile_pos = current.index(tile_val)
-                if tile_pos in adj_buf:
-                    sg = move_tile_into_zone(current, size, tile_val,
-                                             q_set, locked=hard_locked)
-                    if sg:
-                        append_s(sg)
-
-            e_now = find_empty(current)
-            if e_now not in working_zone:
-                tgt = min(adj_buf,
-                          key=lambda idx:
-                          abs(divmod(idx, size)[0] - divmod(e_now, size)[0]) +
-                          abs(divmod(idx, size)[1] - divmod(e_now, size)[1]))
-                sg = bfs_move_empty(current, size, tgt, locked=hard_locked)
-                if sg:
-                    append_s(sg)
-
-            # Parallel: all first-move branches for this quad solved simultaneously
-            sg = parallel_solve_zone(current, size, goal_t, q_set,
-                                     locked=hard_locked, max_nodes=800000,
-                                     working_zone=working_zone)
-            if sg:
-                append_s(sg)
-
-            e_now = find_empty(current)
-            if e_now not in buf_idx:
-                tgt = min(adj_buf,
-                          key=lambda idx:
-                          abs(divmod(idx, size)[0] - divmod(e_now, size)[0]) +
-                          abs(divmod(idx, size)[1] - divmod(e_now, size)[1]))
-                sg = bfs_move_empty(current, size, tgt, locked=hard_locked)
-                if sg:
-                    append_s(sg)
-
-            if all(current[p] == goal_t[p] for p in q_set):
-                hard_locked |= q_set
-            else:
-                for p in q_set:
-                    if current[p] == goal_t[p] and goal_t[p] != 0:
-                        hard_locked.add(p)
-
-        e_now = find_empty(current)
-        if e_now not in buf_idx:
-            er, ec = divmod(e_now, size)
-            tgt = min(buf_idx, key=lambda idx:
-                      abs(divmod(idx, size)[0]-er) + abs(divmod(idx, size)[1]-ec))
-            sg = bfs_move_empty(current, size, tgt, locked=hard_locked)
-            if sg:
-                append_s(sg)
-
-        self.play_segment(full_seg, "Step 2: Island-solving Q0, Q1, Q2")
-
-    # ─────────────────────────────────────────────────────────
-    # STEP 3
-    # ─────────────────────────────────────────────────────────
-    def do_step3(self):
-        if not self.board_loaded or self.cpu_animating:
-            return
-
-        current  = list(self.board)
-        size     = self.size
-        goal_t   = tuple(self.goal)
-        buf_idx  = self.buffer_idx_set
-        quad_idx = self.quad_idx_flat
-        q4_set   = quad_idx[3]
-        N        = size * size
-
-        full_seg = [tuple(current)]
-
-        def append_s(sg):
-            nonlocal current
-            if sg and len(sg) > 1:
-                for st in sg[1:]:
-                    full_seg.append(tuple(st))
-                current = list(sg[-1])
-
-        hl = set()
-        for qi in range(3):
-            q_set = quad_idx[qi]
-            if all(current[p] == goal_t[p] for p in q_set):
-                hl |= q_set
-            else:
-                for p in q_set:
-                    if current[p] == goal_t[p] and goal_t[p] != 0:
-                        hl.add(p)
-
-        adj_buf_q4    = get_adjacent_buffer_cells(q4_set, buf_idx, size)
-        non_adj_buf   = buf_idx - adj_buf_q4
-        buffer_ready  = all(current[p] == goal_t[p] for p in non_adj_buf)
-        buffer_solved = False
-
-        if buffer_ready:
-            working_zone_buf = buf_idx | q4_set
-
-            e = find_empty(current)
-            if e not in working_zone_buf:
-                er, ec = divmod(e, size)
-                tgt = min(working_zone_buf, key=lambda idx:
-                          abs(divmod(idx, size)[0]-er) + abs(divmod(idx, size)[1]-ec))
-                sg = bfs_move_empty(current, size, tgt, locked=hl)
-                if sg:
-                    append_s(sg)
-
-            if not all(current[p] == goal_t[p] for p in buf_idx):
-                buf_locked = hl | {i for i in range(N) if i not in working_zone_buf}
-                # Parallel: buffer solve across all first-move branches simultaneously
-                sg = parallel_solve_zone(current, size, goal_t, buf_idx,
-                                         locked=buf_locked, max_nodes=1200000,
-                                         working_zone=working_zone_buf)
-                if sg:
-                    append_s(sg)
-                    buffer_solved = all(current[p] == goal_t[p] for p in buf_idx)
-                else:
-                    # Buffer not solvable — skip, go directly to Q4
-                    buffer_solved = False
-            else:
-                buffer_solved = True
-
-            if buffer_solved:
-                for p in buf_idx:
-                    if current[p] == goal_t[p]:
-                        hl.add(p)
-
-            if buffer_solved:
-                for p in buf_idx:
-                    if current[p] == goal_t[p]:
-                        hl.add(p)
-            else:
-                # Buffer failed — remove ALL buffer positions from locked set
-                # so buffer tiles can move freely inside adj_buf_q4 during Q4 solve
-                hl -= buf_idx
-
-        # Sub-step B: Solve Q4 — always runs, even when buffer failed
-        q4_working_zone = q4_set | adj_buf_q4
-
-        e = find_empty(current)
-        if e not in q4_working_zone:
-            er, ec = divmod(e, size)
-            tgt = min(q4_working_zone, key=lambda idx:
-                      abs(divmod(idx, size)[0]-er) + abs(divmod(idx, size)[1]-ec))
-            sg = bfs_move_empty(current, size, tgt, locked=hl)
-            if sg:
-                append_s(sg)
-
-        if not all(current[p] == goal_t[p] for p in q4_set):
-            # Only lock tiles that are confirmed correct (hl), minus adj_buf_q4
-            # which Q4 needs as workspace. Do NOT add non-working-zone positions
-            # as locked — buffer tiles there may be unsolved, causing locked_ok
-            # to reject every move. working_zone already restricts the search.
-            q4_locked = hl - adj_buf_q4
-            # Parallel: all first-move branches for Q4 solved simultaneously
-            sg = parallel_solve_zone(current, size, goal_t, q4_set,
-                                     locked=q4_locked, max_nodes=800000,
-                                     working_zone=q4_working_zone)
-            if sg:
-                append_s(sg)
-
-            if tuple(current) != tuple(goal_t):
-                # Only lock confirmed-correct tiles outside Q4
-                hl2 = hl - q4_set - buf_idx
-                seg_fb = gbfs_full(current, goal_t, size,
-                                   locked=hl2, max_nodes=1000000)
-                if seg_fb:
-                    append_s(seg_fb)
-
-        if not buffer_ready:
-            # Buffer was never attempted — unlock buffer so Q4 adj cells are free
-            hl -= buf_idx
-
-        if buffer_ready and not buffer_solved:
-            label = "Step 3: Buffer unsolvable — solving Q4 directly"
-        elif buffer_ready:
-            label = "Step 3: Solving buffer (via Q4) then Q4"
+    def _set_turn_ui(self):
+        if self.computing:
+            self.turn_banner.config(text="  Solving...  Please wait", bg=BTN_GREY)
+            self.turn_card.config(text="Solving...", bg=BTN_GREY, fg="white")
+            self.status.config(text="  Calculating solution — please wait...", fg="#FFFFFF")
+        elif self.auto_mode and not self.auto_paused:
+            self.turn_banner.config(text="  AUTO PLAY — CPU solving", bg=BTN_PURPLE)
+            self.turn_card.config(text="AUTO PLAY", bg=BTN_PURPLE, fg="white")
+        elif self.current_turn == "player":
+            self.turn_banner.config(text="  YOUR TURN — click a tile", bg=P1_COLOR)
+            self.turn_card.config(text="YOUR TURN", bg=P1_COLOR, fg="white")
+            self.status.config(text="  YOUR TURN!  Click any tile next to the empty space.", fg="#FFFFFF")
         else:
-            label = "Step 3: Solving Q4 directly"
+            self.turn_banner.config(text="  CPU TURN — watch the backtracking", bg=P2_COLOR)
+            self.turn_card.config(text="CPU TURN", bg=P2_COLOR, fg="white")
+            self.status.config(text="  CPU is making its step...", fg="#FFFFFF")
 
-        self.play_segment(full_seg, label)
+    def _show_hint(self):
+        if not self.is_started or self.game_over or self.computing: return
+        if self.current_turn != "player": return
+        cur = tuple(self.board); hint_tile = None
+        for j in range(len(self._solution)-1):
+            if self._solution[j] == cur:
+                hint_tile = moved_tile(cur, self._solution[j+1]); break
+        if hint_tile is None:
+            self.status.config(text="  Computing hint...", fg=HINT_BG); self.root.update()
+            fresh = slove_puzzle(cur, self.SIZE, self.GOAL)
+            if fresh and len(fresh) > 1:
+                self._solution = fresh; hint_tile = moved_tile(cur, fresh[1])
+        if hint_tile is None: return
+        self._hint_idx = hint_tile
+        self._draw(hint_idx=hint_tile)
+        self.status.config(text=f"  💡 HINT: Move tile [{self.board[hint_tile]}]  (orange)!", fg=HINT_BG)
+        self.root.after(1500, self._clear_hint)
 
+    def _clear_hint(self):
+        self._hint_idx = None
+        self._draw(hi=self._hi, action=self._hi_action)
+        if self.current_turn == "player" and not self.game_over:
+            self.status.config(text="  YOUR TURN!  Click any tile next to the empty space.", fg="#FFFFFF")
 
-# MAIN
-# Required guard: on Windows, ProcessPoolExecutor spawns new
-# interpreter processes that re-import this module. Without this
-# guard every spawned process would try to open the Tkinter window.
+    def _start_game(self):
+        if self.computing: return
+        self.board          = list(shuffle_board(self.SIZE))
+        self.is_started     = True
+        self.start_time     = time.time()
+        self.game_over      = False
+        self.auto_mode      = False
+        self.auto_paused    = False
+        self.current_turn   = "player"
+        self.p1_moves       = 0
+        self.cpu_steps_done = 0
+        self._hi            = None; self._hi_action = None; self._hint_idx = None
+        self.trace          = []; self.trace_idx = 0; self._solution = []; self._solve_ms = 0.0
+        self.p1_moves_lbl.config(text="0"); self.cpu_steps_lbl.config(text="0")
+        self.lbl_backs.config(text="--"); self.lbl_steps.config(text="--")
+        self.action_lbl.config(text="--", fg=TEXT_DARK)
+        self.step_bar.config(text="Solving...")
+        self.btn_auto.config(text="⚡  AUTO PLAY  (CPU solves)")
+        self._draw(); self.computing = True; self._set_turn_ui()
+        threading.Thread(target=self._bg_solve, daemon=True).start()
+
+    def _reset(self):
+        self.auto_mode = False; self.auto_paused = False; self.computing = False
+        self._start_game()
+
+    def _bg_solve(self):
+        t0  = time.time()
+        sol = slove_puzzle(tuple(self.board), self.SIZE, self.GOAL)
+        ms  = (time.time()-t0)*1000
+        if sol is None: self.root.after(0, self._no_solution)
+        else:
+            trace = build_trace(sol, self.SIZE)
+            self.root.after(0, lambda: self._on_ready(sol, trace, ms))
+
+    def _no_solution(self):
+        self.computing = False
+        self.status.config(text="  No solution found — press RESET.", fg=BACK_BG)
+
+    def _on_ready(self, sol, trace, ms):
+        self.computing    = False
+        self._solution    = sol
+        self._solve_ms    = ms
+        self.trace        = trace
+        self.trace_idx    = 0
+        self._total_steps = len(trace)
+        self._total_backs = sum(1 for e in trace if e[0] == "back")
+        self.step_bar.config(text=f"Steps: 0 / {self._total_steps}")
+        self.lbl_backs.config(text=str(self._total_backs))
+        self.lbl_steps.config(text=str(self._total_steps))
+        self._set_turn_ui(); self._draw()
+        if self.auto_mode: self._do_cpu_step()
+
+    def _click(self, idx):
+        if self.current_turn != "player": return
+        if not self.is_started or self.game_over or self.computing: return
+        if self.auto_mode: return
+        if idx not in get_moves(self.board, self.SIZE): return
+        self._hi = None; self._hi_action = None; self._hint_idx = None
+        self.board = list(apply_move(tuple(self.board), idx))
+        self.p1_moves += 1; self.p1_moves_lbl.config(text=str(self.p1_moves))
+        self._draw()
+        if tuple(self.board) == self.GOAL: self._end_game(player_won=True); return
+        self.current_turn = "cpu"; self._set_turn_ui(); self._draw()
+        self.root.after(max(60, 840-self.sv.get()), self._do_cpu_step)
+
+    def _do_cpu_step(self):
+        if self.game_over or self.computing: return
+        if self.trace_idx >= len(self.trace): self._finish_cpu_turn(); return
+
+        action, board_t, hi = self.trace[self.trace_idx]
+        self.trace_idx += 1; self.cpu_steps_done += 1
+        self.board = list(board_t); self._hi = hi; self._hi_action = action
+
+        self.cpu_steps_lbl.config(text=str(self.cpu_steps_done))
+        self.lbl_steps.config(text=str(self.cpu_steps_done))
+        backs = sum(1 for e in self.trace[:self.trace_idx] if e[0] == "back")
+        self.lbl_backs.config(text=str(backs))
+        self.step_bar.config(text=f"Steps: {self.trace_idx} / {self._total_steps}")
+        self._draw(hi=hi, action=action)
+
+        tile_val = board_t[hi] if (hi is not None and hi < len(board_t)) else "?"
+        r = hi//self.SIZE+1 if hi is not None else "?"
+        c = hi% self.SIZE+1 if hi is not None else "?"
+
+        if action == "try":
+            self.action_lbl.config(text=f"CPU Trying\nTile [{tile_val}] at ({r},{c})", fg=TRY_BG)
+            self.status.config(
+                text=f"  CPU TRYING  →  Tile [{tile_val}] at ({r},{c})"
+                     f"   |  Step {self.trace_idx}/{self._total_steps}", fg="#FFFFFF")
+        elif action == "back":
+            self.action_lbl.config(text=f"🔴 BACKTRACK!\nTile [{tile_val}] ({r},{c})", fg=BACK_BG)
+            self.status.config(
+                text=f"  🔴 BACKTRACKING!  Tile [{tile_val}] at ({r},{c})"
+                     f" — dead end!  |  Step {self.trace_idx}/{self._total_steps}", fg=BACK_BG)
+        elif action == "done":
+            self.action_lbl.config(text="✅ CPU SOLVED!", fg=DONE_BG)
+            self.status.config(text="  ✅ CPU solved the board!", fg=DONE_BG)
+            self._draw(hi=hi, action=action)
+            self.root.after(800, lambda: self._end_game(player_won=False)); return
+
+        if tuple(self.board) == self.GOAL:
+            self.root.after(400, lambda: self._end_game(player_won=False)); return
+
+        delay = max(60, 840-self.sv.get())
+        if self.auto_mode and not self.auto_paused:
+            self.root.after(delay, self._do_cpu_step)
+        else:
+            self.root.after(delay, self._finish_cpu_turn)
+
+    def _finish_cpu_turn(self):
+        if self.game_over: return
+        self.current_turn = "player"; self._set_turn_ui()
+        self._draw(hi=self._hi, action=self._hi_action)
+
+    def _toggle_auto(self):
+        if not self.is_started or self.computing:
+            self.auto_mode = True
+            if not self.is_started: self._start_game()
+            self.btn_auto.config(text="⏸  PAUSE Auto Play"); return
+        if not self.auto_mode:
+            self.auto_mode = True; self.auto_paused = False
+            self.current_turn = "cpu"
+            self.btn_auto.config(text="⏸  PAUSE Auto Play")
+            self._set_turn_ui(); self._do_cpu_step()
+        else:
+            self.auto_paused = not self.auto_paused
+            if self.auto_paused:
+                self.btn_auto.config(text="▶  RESUME Auto Play")
+                self.status.config(text="  Auto Play paused. Press RESUME.", fg="#FFFFFF")
+            else:
+                self.btn_auto.config(text="⏸  PAUSE Auto Play"); self._do_cpu_step()
+
+    def _open_graph(self):
+        if not self.is_started:
+            self.status.config(
+                text="  ⚠  Press START first — graph needs puzzle data!", fg=HINT_BG)
+            return
+        if self.computing:
+            self.status.config(
+                text="  ⏳  Still computing — wait a moment then try again.", fg=HINT_BG)
+            return
+        RuntimeGraphWindow(
+            self.root, self.trace, self._solution,
+            self.SIZE, self._solve_ms, self.p1_moves, self.cpu_steps_done
+        )
+
+    def _end_game(self, player_won=False):
+        if self.game_over: return
+        self.game_over = True; self.auto_mode = False
+        winner = "🏆  YOU WIN!" if player_won else "🤖  CPU solved it!"
+        wcolor = P1_COLOR if player_won else P2_COLOR
+        backs  = sum(1 for e in self.trace[:self.trace_idx] if e[0] == "back")
+        self.status.config(
+            text=f"{winner}   Your moves: {self.p1_moves}   "
+                 f"CPU steps: {self.cpu_steps_done}   Backtracks: {backs}",
+            fg=wcolor)
+        self.root.after(300, lambda: self._popup(winner, wcolor, backs))
+
+    def _popup(self, winner, wcolor, backs):
+        pop = tk.Toplevel(self.root)
+        pop.title("Game Complete!")
+        pop.configure(bg=BG_PANEL); pop.resizable(False, False)
+        pop.transient(self.root); pop.grab_set()
+        pw, ph = 360, 240
+        self.root.update_idletasks()
+        rx = self.root.winfo_x()+(self.root.winfo_width() -pw)//2
+        ry = self.root.winfo_y()+(self.root.winfo_height()-ph)//2
+        pop.geometry(f"{pw}x{ph}+{rx}+{ry}")
+
+        # header
+        hdr = tk.Frame(pop, bg=wcolor, pady=22); hdr.pack(fill="x")
+        tk.Label(hdr, text="GAME COMPLETE!",
+                 font=tkfont.Font(family="Georgia", size=22, weight="bold"),
+                 bg=wcolor, fg="white").pack()
+
+        # only 2 stats: Your Moves + CPU Backtracks
+        body = tk.Frame(pop, bg=BG_PANEL, pady=16); body.pack(fill="x", padx=32)
+        lf = tkfont.Font(family="Verdana", size=10)
+        vf = tkfont.Font(family="Verdana", size=16, weight="bold")
+
+        for label, val, color in [
+            ("Your Moves",     str(self.p1_moves), P1_COLOR),
+            ("CPU Backtracks", f"{backs:,}",        BTN_RESET),
+        ]:
+            row = tk.Frame(body, bg=BG_CARD, padx=18, pady=12)
+            row.pack(fill="x", pady=4)
+            tk.Label(row, text=label, font=lf,
+                     bg=BG_CARD, fg=TEXT_MID, anchor="w").pack(side="left")
+            tk.Label(row, text=val, font=vf,
+                     bg=BG_CARD, fg=color, anchor="e").pack(side="right")
+
+        # buttons
+        bf = tkfont.Font(family="Verdana", size=10, weight="bold")
+        br = tk.Frame(pop, bg=BG_PANEL, pady=10); br.pack()
+        tk.Button(br, text="▶  Play Again", font=bf,
+                  bg=BTN_START, fg="white", relief="flat",
+                  padx=18, pady=8, cursor="hand2",
+                  command=lambda: [pop.destroy(), self._reset()]
+                  ).pack(side="left", padx=8)
+        tk.Button(br, text="✕  Close", font=bf,
+                  bg=BTN_GREY, fg="white", relief="flat",
+                  padx=18, pady=8, cursor="hand2",
+                  command=pop.destroy
+                  ).pack(side="left", padx=8)
+
 
 if __name__ == "__main__":
     root = tk.Tk()
-    PuzzleGame(root)
+    Launcher(root)
     root.mainloop()
+
+
 
