@@ -34,34 +34,36 @@ BTN_TEAL        = "#16A085"
 BTN_ORANGE      = "#E67E22"
 P1_COLOR        = "#2980B9"
 P2_COLOR        = "#E67E22"
-# BOARD UTILITIES
 
-def create_goal(size):
-    return list(range(1, size * size)) + [0]
+# ── BOARD HELPERS ───
+def make_goal(size):
+    return tuple(range(1, size * size)) + (0,)
 
-def find_empty(board):
-    return board.index(0)
-
-def get_valid_moves(board, size):
-    e = find_empty(board)
-    r, c = divmod(e, size)
-    moves = []
+def get_moves(board, size):
+    e = board.index(0); r, c = divmod(e, size); out = []
     for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
         nr, nc = r+dr, c+dc
         if 0 <= nr < size and 0 <= nc < size:
-            moves.append(nr*size+nc)
-    return moves
+            out.append(nr*size + nc)
+    return out
 
-def swap_board(board, i, j):
-    b = list(board)
-    b[i], b[j] = b[j], b[i]
+def apply_move(board, idx):
+    b = list(board); e = b.index(0); b[e], b[idx] = b[idx], b[e]; return tuple(b)
+
+def shuffle_board(size):
+    steps = 40 if size == 4 else 30
+    b = list(make_goal(size)); prev = None
+    for _ in range(steps):
+        moves = get_moves(b, size)
+        if prev in moves and len(moves) > 1: moves.remove(prev)
+        chosen = random.choice(moves); prev = b.index(0)
+        b = list(apply_move(tuple(b), chosen))
     return tuple(b)
 
-
-
-def count_correct(board, goal):
-    return sum(1 for i in range(len(board))
-               if board[i] == goal[i] and board[i] != 0)
+def moved_tile(prev_b, cur_b):
+    for i in range(len(cur_b)):
+        if cur_b[i] != prev_b[i] and cur_b[i] != 0: return i
+    return None
 
 
 # QUADRANT DEFINITIONS
@@ -1043,6 +1045,7 @@ if __name__ == "__main__":
     root = tk.Tk()
     Launcher(root)
     root.mainloop()
+
 
 
 
