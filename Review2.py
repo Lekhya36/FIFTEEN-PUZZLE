@@ -66,52 +66,25 @@ def moved_tile(prev_b, cur_b):
     return None
 
 
-# QUADRANT DEFINITIONS
+class PureBacktrackSolver:
+    def __init__(self, start, size, goal):
+        self.start      = tuple(start)
+        self.size       = size
+        self.goal_t     = tuple(goal)
+        self.trace      = []
+        self.backtracks = 0
+        self.found      = False
 
-def get_quadrant_cells(size):
-    if size == 4:
-        buf_rows = {1, 2}
-        buf_cols = {1, 2}
-    else:
-        buf_rows = {2}
-        buf_cols = {2}
-
-    buffer_cells = set()
-    for r in range(size):
-        for c in range(size):
-            if r in buf_rows or c in buf_cols:
-                buffer_cells.add((r, c))
-
-    non_buf = [(r, c) for r in range(size) for c in range(size)
-               if (r, c) not in buffer_cells]
-
-    mid_r = size // 2
-    mid_c = size // 2
-
-    q0 = {(r,c) for (r,c) in non_buf if r < mid_r and c < mid_c}
-    q1 = {(r,c) for (r,c) in non_buf if r < mid_r and c >= mid_c}
-    q2 = {(r,c) for (r,c) in non_buf if r >= mid_r and c < mid_c}
-    q3 = {(r,c) for (r,c) in non_buf if r >= mid_r and c >= mid_c}
-
-    return buf_rows, buf_cols, buffer_cells, [q0, q1, q2, q3]
-
-def cells_to_idx(cells, size):
-    return {r*size+c for (r,c) in cells}
-
-def get_adjacent_buffer_cells(quadrant_set, buffer_set, size):
-    adj = set()
-    for idx in quadrant_set:
-        r, c = divmod(idx, size)
-        for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
-            nr, nc = r+dr, c+dc
-            if 0 <= nr < size and 0 <= nc < size:
-                nb = nr*size+nc
-                if nb in buffer_set:
-                    adj.add(nb)
-    return adj
+    def solve(self):
+        for depth_limit in range(1, 300):
+            self.trace = []
+            self.found = False
+            self._bt([self.start], {self.start}, depth_limit)
+            if self.found:
+                break
+        return self.trace
 
 
-# BFS — move empty tile to target
 
 def bfs_move_empty(board, size, target, locked=None):
     board = tuple(board)
@@ -1045,6 +1018,7 @@ if __name__ == "__main__":
     root = tk.Tk()
     Launcher(root)
     root.mainloop()
+
 
 
 
