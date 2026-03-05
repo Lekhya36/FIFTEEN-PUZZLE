@@ -353,102 +353,289 @@ class Launcher:
 
 
 
-def _branch_worker(args):
-    """
-    Runs in a dedicated OS process (via ProcessPoolExecutor).
-    Solves gbfs_zone from the board state reached after making
-    one specific first_move.  Returns full path or None.
-    """
-    (board, first_move, empty_pos,
-     size, goal_t,
-     solve_positions, locked,
-     max_nodes, fill_only, working_zone) = args
+#  PUZZLE GAME
+class PuzzleGame:
+    def __init__(self, root, size):
+        self.root  = root
+        self.SIZE  = size
+        self.GOAL  = make_goal(size)
+        lbl        = "15" if size == 4 else "25"
+        root.title(f"{lbl} Puzzle — Backtracking Visualizer")
+        root.configure(bg=BG_MAIN)
+        root.resizable(True, True)
 
-    next_board = swap_board(board, empty_pos, first_move)
-    path = gbfs_zone(next_board, size, goal_t,
-                     solve_positions, locked,
-                     max_nodes, fill_only, working_zone)
-    if path:
-        return [board] + list(path)   # prepend original board
-    return None
+        w = 920 if size == 4 else 960
+        h = 660 if size == 4 else 680
+        root.geometry(f"{w}x{h}")
 
+        self.board        = self.GOAL.copy()
+        self.is_started   = False
+        self.game_over    = False
+        self.auto_playing = False
+        self.auto_paused  = False
+        self.trace        = []
+        self.trace_idx    = 0
+        self.speed_ms     = 200
+        self.last_solver  = None
+        self.start_time   = None
+        self.elapsed      = 0
+        self._total_tries = 0
+        self._total_backs = 0
+        self._total_steps = 0
 
-# PARALLEL ZONE SOLVER
-#
-# TRUE parallelism via ProcessPoolExecutor (separate OS processes,
-# no GIL contention):
-#
-#   1. Enumerate every tile adjacent to the empty cell = N candidates.
-#   2. Build one job per candidate (removing that tile = one first move).
-#   3. Submit ALL jobs to ProcessPoolExecutor at once.
-#      → N processes run simultaneously on N CPU cores.
-#   4. collect_first_done = False: wait for ALL to finish, pick shortest.
-#      This ensures we always get the globally best path, not just the
-#      first one to finish (which might be longer).
-#   5. Return the shortest path → played back sequentially in the UI.
+        # Runtime graph window (created once, reused)
+        self._graph: RuntimeGraph | None = None
 
-def parallel_solve_zone(board, size, goal_t, solve_positions, locked=None,
-                        max_nodes=300000, fill_only=False, working_zone=None):
-    board = tuple(board)
-    if locked is None:
-        locked = set()
+        self._fonts()
+        self._build()
+        self._draw()
+        self._clock()
 
-    e           = board.index(0)
-    valid_moves = get_valid_moves(list(board), size)
+    # ── open / reset graph ───────────────────────────────────────────────────
+    def _ensure_graph(self):
+        if self._graph is None or not self._graph.win.winfo_exists():
+            self._graph = RuntimeGraph(self.root)
+        else:
+            self._graph.reset()
+            self._graph.win.lift()
 
-    # Filter to moves allowed by zone and lock constraints
-    first_moves = []
-    for m in valid_moves:
-        if m in locked:
-            continue
-        if working_zone is not None and (e not in working_zone or
-                                          m not in working_zone):
-            continue
-        first_moves.append(m)
+    def _fonts(self):
+        self.F_HDR    = tkfont.Font(family="Georgia", size=15, weight="bold")
+        self.F_SUB    = tkfont.Font(family="Verdana", size=8)
+        sz            = 24 if self.SIZE == 4 else 18
+        self.F_TILE   = tkfont.Font(family="Georgia", size=sz, weight="bold")
+        self.F_BTN    = tkfont.Font(family="Verdana", size=9,  weight="bold")
+        self.F_STAT_V = tkfont.Font(family="Verdana", size=16, weight="bold")
+        self.F_STAT_L = tkfont.Font(family="Verdana", size=8)
+        self.F_SEC    = tkfont.Font(family="Verdana", size=8,  weight="bold")
+        self.F_STATUS = tkfont.Font(family="Verdana", size=10, weight="bold")
+        self.F_ACT    = tkfont.Font(family="Verdana", size=11, weight="bold")
 
-    if not first_moves:
-        return gbfs_zone(board, size, goal_t, solve_positions, locked,
-                         max_nodes, fill_only, working_zone)
+    def _build(self):
+        lbl = "15 PUZZLE" if self.SIZE == 4 else "25 PUZZLE"
 
-    # Pack all args as plain picklable types.
-    # Sets → frozensets so they survive the pickle round-trip.
-    jobs = [
-        (board, m, e, size, tuple(goal_t),
-         frozenset(solve_positions),
-         frozenset(locked),
-         max_nodes, fill_only,
-         frozenset(working_zone) if working_zone is not None else None)
-        for m in first_moves
-    ]
+        top = tk.Frame(self.root, bg=HDR_BG, pady=10)
+        top.pack(fill="x")
+        tk.Label(top, text=f"{lbl}  —  BACKTRACKING VISUALIZER",
+                 font=self.F_HDR, bg=HDR_BG, fg="#FFFFFF").pack(side="left", padx=18)
+        tk.Label(top, text="Watch every try, place & backtrack",
+                 font=self.F_SUB, bg=HDR_BG, fg="#AEB6BF").pack(side="right", padx=18)
 
-    results = []
-    try:
-        # ProcessPoolExecutor: each job runs in a true separate OS process.
-        # All N jobs are submitted at once → N-way real parallelism.
-        with concurrent.futures.ProcessPoolExecutor(
-                max_workers=len(jobs)) as executor:
-            futures = [executor.submit(_branch_worker, job) for job in jobs]
-            for future in concurrent.futures.as_completed(futures):
-                try:
-                    result = future.result()
-                    if result is not None:
-                        results.append(result)
-                except Exception:
-                    pass
-    except Exception:
-        pass   # multiprocessing unavailable → fall through to single-process
+        main = tk.Frame(self.root, bg=BG_MAIN)
+        main.pack(fill="both", expand=True, padx=14, pady=12)
+        main.columnconfigure(0, weight=1)
+        main.columnconfigure(1, weight=0)
+        main.rowconfigure(0, weight=1)
 
-    if results:
-        return min(results, key=len)   # shortest path across all branches
+        left = tk.Frame(main, bg=BG_MAIN)
+        left.grid(row=0, column=0, sticky="nsew")
+        left.rowconfigure(0, weight=1)
+        left.columnconfigure(0, weight=1)
 
-    # Single-process fallback
-    return gbfs_zone(board, size, goal_t, solve_positions, locked,
-                     max_nodes, fill_only, working_zone)
+        self._left_frame = left
+        wrap = tk.Frame(left, bg=BG_MAIN)
+        wrap.place(relx=0.5, rely=0.5, anchor="center")
 
+        outer = tk.Frame(wrap, bg=HDR_BG, padx=5, pady=5)
+        outer.pack()
 
+        self.grid_frame = tk.Frame(outer, bg=HDR_BG)
+        self.grid_frame.pack()
 
+        tw = 5 if self.SIZE == 4 else 4
+        th = 2
 
-# GBFS FULL-BOARD 
+        self.buttons = []
+        for i in range(self.SIZE * self.SIZE):
+            b = tk.Button(self.grid_frame,
+                          text="",
+                          font=self.F_TILE,
+                          relief="flat",
+                          cursor="hand2",
+                          width=tw, height=th,
+                          bd=0,
+                          command=lambda i=i: self._click(i))
+            b.grid(row=i//self.SIZE, column=i%self.SIZE,
+                   padx=4, pady=4)
+            self.buttons.append(b)
+
+        right = tk.Frame(main, bg=BG_PANEL, width=225,
+                         highlightbackground="#D5D8DC",
+                         highlightthickness=1)
+        right.grid(row=0, column=1, sticky="nsew", padx=(14,0))
+        right.pack_propagate(False)
+        self._build_panel(right)
+
+        bot = tk.Frame(self.root, bg=HDR_BG)
+        bot.pack(fill="x", side="bottom")
+        self.step_bar = tk.Label(bot, text="Step 0 / 0",
+                                 font=self.F_STAT_L, bg=HDR_BG, fg="#AEB6BF",
+                                 padx=12, pady=5)
+        self.step_bar.pack(side="left")
+        self.status = tk.Label(bot,
+                               text="Press  START  to begin!",
+                               font=self.F_STATUS,
+                               bg=HDR_BG, fg="#FFFFFF",
+                               pady=7, padx=14, anchor="w")
+        self.status.pack(side="left", fill="x", expand=True)
+
+    def _build_panel(self, panel):
+
+        def section(txt):
+            tk.Label(panel, text=txt, font=self.F_SEC,
+                     bg=BG_PANEL, fg=TEXT_MID).pack(pady=(13,3))
+
+        def div():
+            tk.Frame(panel, bg="#E0E7EF", height=1).pack(fill="x", padx=12, pady=5)
+
+        def mkbtn(txt, bg, cmd, p=None):
+            b = tk.Button(p or panel, text=txt, font=self.F_BTN,
+                          bg=bg, fg="white", relief="flat",
+                          pady=9, cursor="hand2",
+                          activebackground=bg, command=cmd)
+            b.pack(fill="x", padx=12, pady=2)
+            return b
+
+        section("STATISTICS")
+        sc = tk.Frame(panel, bg=BG_PANEL); sc.pack(fill="x", padx=12)
+        self.lbl_tries = self._srow(sc, "Steps tried:", "—")
+        self.lbl_backs = self._srow(sc, "Backtracks:",  "—")
+
+        div()
+        section("TIME")
+        tc = tk.Frame(panel, bg=BG_CARD, padx=10, pady=8)
+        tc.pack(fill="x", padx=12)
+        self.t_lbl = tk.Label(tc, text="00:00",
+                              font=self.F_STAT_V,
+                              bg=BG_CARD, fg=BTN_BLUE)
+        self.t_lbl.pack()
+
+        div()
+        section("LEGEND")
+        leg = tk.Frame(panel, bg=BG_PANEL); leg.pack(fill="x", padx=12)
+        for txt, color in [("Trying cell",  TRY_BG),
+                           ("Backtracking", BACK_BG),
+                           ("Correct pos.", TILE_CORRECT)]:
+            row = tk.Frame(leg, bg=BG_PANEL, pady=3); row.pack(fill="x")
+            dot = tk.Frame(row, bg=color, width=16, height=16)
+            dot.pack(side="left", padx=(0,8))
+            dot.pack_propagate(False)
+            tk.Label(row, text=txt, font=self.F_STAT_L,
+                     bg=BG_PANEL, fg=TEXT_DARK).pack(side="left")
+
+        div()
+        section("CURRENT ACTION")
+        self.action_lbl = tk.Label(panel, text="—",
+                                   font=self.F_ACT,
+                                   bg=BG_PANEL, fg=TEXT_DARK,
+                                   wraplength=195, justify="center")
+        self.action_lbl.pack(pady=4, padx=10)
+
+        div()
+        mkbtn("▶  START",      BTN_START,  self._start_game)
+        mkbtn("↺  RESET",      BTN_RESET,  self._reset)
+
+        div()
+        mkbtn("▶  AUTO SOLVE", BTN_PURPLE, self._auto_start)
+        # ── Runtime Graph button ──────────────────────────────────────────────
+        mkbtn("📈  RUNTIME GRAPH", BTN_BLUE, self._show_graph)
+
+        brow = tk.Frame(panel, bg=BG_PANEL); brow.pack(fill="x", padx=12, pady=2)
+        tk.Button(brow, text="◀ Back", font=self.F_BTN,
+                  bg=BTN_GREY, fg="white", relief="flat",
+                  pady=8, cursor="hand2", activebackground=BTN_GREY,
+                  command=self._step_back
+                  ).pack(side="left", expand=True, fill="x", padx=(0,3))
+        self.btn_pp = tk.Button(brow, text="⏸ Pause", font=self.F_BTN,
+                                bg=BTN_BLUE, fg="white", relief="flat",
+                                pady=8, cursor="hand2", activebackground=BTN_BLUE,
+                                command=self._auto_pause)
+        self.btn_pp.pack(side="left", expand=True, fill="x")
+
+        div()
+        section("SPEED")
+        spf = tk.Frame(panel, bg=BG_PANEL); spf.pack(fill="x", padx=12, pady=4)
+        tk.Label(spf, text="Slow", font=self.F_STAT_L,
+                 bg=BG_PANEL, fg=TEXT_DIM).pack(side="left")
+        self.sv = tk.IntVar(value=640)
+        tk.Scale(spf, from_=20, to=820, orient="horizontal",
+                 variable=self.sv, bg=BG_PANEL,
+                 troughcolor=BG_CARD, highlightthickness=0,
+                 showvalue=False, command=self._on_speed
+                 ).pack(side="left", fill="x", expand=True)
+        tk.Label(spf, text="Fast", font=self.F_STAT_L,
+                 bg=BG_PANEL, fg=TEXT_DIM).pack(side="left")
+
+    def _show_graph(self):
+        """Open (or re-raise) the runtime graph window."""
+        if self._graph is None or not self._graph.win.winfo_exists():
+            self._graph = RuntimeGraph(self.root)
+        else:
+            self._graph.win.lift()
+            self._graph.win.focus_force()
+
+    def _srow(self, parent, label, value):
+        row = tk.Frame(parent, bg=BG_PANEL, pady=2); row.pack(fill="x")
+        tk.Label(row, text=label, font=self.F_STAT_L,
+                 bg=BG_PANEL, fg=TEXT_MID, anchor="w").pack(side="left")
+        v = tk.Label(row, text=value, font=self.F_BTN,
+                     bg=BG_PANEL, fg=TEXT_DARK, anchor="e")
+        v.pack(side="right")
+        return v
+
+    def _on_speed(self, _=None):
+        self.speed_ms = max(20, 840 - self.sv.get())
+
+    def _clock(self):
+        if self.is_started and not self.game_over and not self.auto_paused:
+            self.elapsed = int(time.time() - self.start_time)
+            m, s = divmod(self.elapsed, 60)
+            self.t_lbl.config(text=f"{m:02d}:{s:02d}")
+        self.root.after(1000, self._clock)
+
+    def _draw(self, hi=None, action=None):
+        for i, v in enumerate(self.board):
+            btn = self.buttons[i]
+            if v == 0:
+                btn.config(text="", state="disabled",
+                           bg=EMPTY_BG, activebackground=EMPTY_BG)
+                continue
+            if not self.is_started:
+                btn.config(text="?", bg="#D6EAF8", fg="#555555",
+                           state="disabled", activebackground="#D6EAF8")
+                continue
+            bg = TILE_BG
+            fg = TILE_FG
+            if self.auto_playing and v == self.GOAL[i] and i != hi:
+                bg = TILE_CORRECT
+                fg = TILE_CORRECT_FG
+            if i == hi:
+                if action == "try":
+                    bg = TRY_BG; fg = TRY_FG
+                elif action == "back":
+                    bg = BACK_BG; fg = BACK_FG
+                elif action == "done":
+                    bg = DONE_BG; fg = DONE_FG
+            btn.config(text=str(v), bg=bg, fg=fg,
+                       state="normal", activebackground=bg)
+
+    def _start_game(self):
+        self.board        = shuffle_board(self.SIZE, 12)
+        self.is_started   = True
+        self.start_time   = time.time()
+        self.game_over    = False
+        self.auto_playing = False
+        self.trace = []; self.trace_idx = 0
+        self.last_solver  = None
+        self.lbl_tries.config(text="—")
+        self.lbl_backs.config(text="—")
+        self.action_lbl.config(text="—", fg=TEXT_DARK)
+        self.step_bar.config(text="Step 0 / 0")
+        self.status.config(
+            text="Your Turn!  Click a tile next to the empty space.",
+            fg="#FFFFFF")
+        self._draw()
+
 
 def gbfs_full(board, goal_t, size, locked=None, max_nodes=500000):
     board  = tuple(board)
@@ -1106,6 +1293,7 @@ if __name__ == "__main__":
     root = tk.Tk()
     Launcher(root)
     root.mainloop()
+
 
 
 
