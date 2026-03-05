@@ -86,60 +86,45 @@ class PureBacktrackSolver:
 
 
 
-def bfs_move_empty(board, size, target, locked=None):
-    board = tuple(board)
-    e = board.index(0)
-    if e == target:
-        return [board]
-    if locked is None:
-        locked = set()
+def _bt(self, path, seen, limit):
+        if self.found:
+            return
+        cur = path[-1]
 
-    parent = {board: None}
-    queue  = deque([board])
+        moved = None
+        if len(path) >= 2:
+            prev = path[-2]
+            for i in range(len(cur)):
+                if cur[i] != prev[i] and cur[i] != 0:
+                    moved = i; break
 
-    while queue:
-        state = queue.popleft()
-        e     = state.index(0)
-        prev  = parent[state]
-        for m in get_valid_moves(list(state), size):
-            if m in locked:
-                continue
-            ns = swap_board(state, e, m)
-            if ns in parent:
-                continue
-           # skip if this move reverses the previous
-            if prev is not None and ns == prev:
-                continue
-            parent[ns] = state
-            if ns.index(0) == target:
-                path = [ns]
-                cur  = ns
-                while parent[cur] is not None:
-                    cur = parent[cur]
-                    path.append(cur)
-                return list(reversed(path))
-            queue.append(ns)
+        # PURPLE: trying this move
+        self.trace.append(("try", cur, moved))
 
-    # Fallback without moving same tile to and fro
-    visited = {board}
-    queue2  = deque([(board, [board])])
-    while queue2:
-        state, path = queue2.popleft()
-        e = state.index(0)
-        for m in get_valid_moves(list(state), size):
-            if m in locked:
-                continue
-            ns = swap_board(state, e, m)
-            if ns in visited:
-                continue
-            visited.add(ns)
-            np = path + [ns]
-            if ns.index(0) == target:
-                return np
-            queue2.append((ns, np))
-    return None
+        if cur == self.goal_t:
+            self.trace.append(("done", cur, moved))
+            self.found = True
+            return
 
+        if len(path) - 1 >= limit:
+            return
 
+        for tile_idx in get_moves(list(cur), self.size):
+            nb = apply_move(cur, tile_idx)
+            if nb in seen:
+                continue
+            path.append(nb); seen.add(nb)
+            self._bt(path, seen, limit)
+            path.pop(); seen.discard(nb)
+            if self.found:
+                return
+            # RED: dead end — backtracking
+            bt = None
+            for i in range(len(nb)):
+                if nb[i] != cur[i] and nb[i] != 0:
+                    bt = i; break
+            self.trace.append(("back", cur, bt))
+            self.backtracks += 1
 # GBFS ZONE SOLVER
 
 def gbfs_zone(board, size, goal_t, solve_positions, locked=None,
@@ -1018,6 +1003,7 @@ if __name__ == "__main__":
     root = tk.Tk()
     Launcher(root)
     root.mainloop()
+
 
 
 
