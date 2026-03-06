@@ -62,93 +62,56 @@ def shuffle_board(size, steps=12):
     return b
 
 class PureBacktrackSolver:
+    DEPTH_LIMIT = 15
     def __init__(self, start, size, goal):
         self.start      = tuple(start)
         self.size       = size
         self.goal_t     = tuple(goal)
         self.trace      = []
-        self.backtracks = 0
         self.found      = False
 
-        # --- DP MEMOIZATION TABLE ---
-        # stores best depth visited for each state
-        self.memo = {}
-
     def solve(self):
-        for depth_limit in range(1, 300):
-            self.trace = []
-            self.found = False
-            self.memo  = {}  # reset DP cache each iteration
-
-            self._bt([self.start], {self.start}, depth_limit)
-
-            if self.found:
-                break
+        path_set = {self.start}
+        self._dfs(self.start, path_set, 0)
         return self.trace
 
-    def _bt(self, path, seen, limit):
-
+    def _dfs(self, board, path_set, depth):
         if self.found:
             return
 
-        cur = path[-1]
-
-        # ---------- DP PRUNING ----------
-        depth = len(path) - 1
-
-        # if we already reached this state at a smaller depth
-        # there is no reason to explore again
-        if cur in self.memo and self.memo[cur] <= depth:
-            return
-
-        self.memo[cur] = depth
-        # --------------------------------
-
-        moved = None
-        if len(path) >= 2:
-            prev = path[-2]
-            for i in range(len(cur)):
-                if cur[i] != prev[i] and cur[i] != 0:
-                    moved = i
-                    break
-
-        self.trace.append(("try", cur, moved))
-
-        if cur == self.goal_t:
-            self.trace.append(("done", cur, moved))
+        # ── GOAL CHECK ───────────────────────────────────────────────────────
+        if board == self.goal_t:
+            self.trace.append(("done", board, None))
             self.found = True
             return
 
-        if len(path) - 1 >= limit:
+        # ── DEPTH LIMIT ──────────────────────────────────────────────────────
+        if depth >= self.DEPTH_LIMIT:
             return
 
-        for tile_idx in get_moves(list(cur), self.size):
-
-            nb = apply_move(cur, tile_idx)
-
-            if nb in seen:
-                continue
-
-            path.append(nb)
-            seen.add(nb)
-
-            self._bt(path, seen, limit)
-
-            path.pop()
-            seen.discard(nb)
-
+        # ── TRY EVERY NEIGHBOUR ──────────────────────────────────────────────
+        for idx in get_moves(list(board), self.size):
             if self.found:
                 return
 
-            bt = None
-            for i in range(len(nb)):
-                if nb[i] != cur[i] and nb[i] != 0:
-                    bt = i
-                    break
+            next_board = apply_move(board, idx)
 
-            self.trace.append(("back", cur, bt))
-            self.backtracks += 1
+            # Skip only if this state is already on the CURRENT PATH
+            if next_board in path_set:
+                continue
 
+            moved = tile_that_moved(board, next_board)
+
+            # ── GOING DEEPER (PURPLE) ─────────────────────────────────────────
+            self.trace.append(("try", next_board, moved))
+
+            path_set.add(next_board)
+            self._dfs(next_board, path_set, depth + 1)
+            path_set.discard(next_board)
+
+            if self.found:
+                return
+            self.trace.append(("back", board, moved))
 
 class RuntimeGraph:
     """
@@ -884,5 +847,6 @@ if __name__ == "__main__":
     root = tk.Tk()
     Launcher(root)
     root.mainloop()
+
 
 
